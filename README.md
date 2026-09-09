@@ -1,6 +1,6 @@
 # Bilkent Şehir Hastanesi canlı eğitim
 
-FastAPI, HTML, CSS ve vanilla JavaScript ile tek yönetici şifreli canlı sınav uygulaması. Katılımcılar yalnızca takma adla katılır. Her soru sunucuda **45 saniye** açık kalır; sonuçtan sonraki soruya yalnızca yönetici geçer. SQLite kayıtları ve WebSocket bağlantıları yenileme/yeniden bağlanmayı destekler.
+FastAPI, HTML, CSS ve vanilla JavaScript ile tek yönetici şifreli canlı sınav uygulaması. Katılımcılar yalnızca takma adla katılır. Her soru, yöneticinin lobide seçtiği **5–300 saniye** boyunca açık kalır (varsayılan 45 saniye); sonuçtan sonraki soruya yalnızca yönetici geçer. SQLite kayıtları ve WebSocket bağlantıları yenileme/yeniden bağlanmayı destekler.
 
 ## Yerelde başlatma
 
@@ -36,8 +36,8 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 1. `/admin` üzerinden giriş yapın. Sınav başlığını yazıp DOCX soru dosyasını seçin.
 2. “Önizlemeyi aç” ile soru, şık, doğru cevap, konu, ipucu ve açıklamaları kontrol edin. “Sınavı kaydet” veritabanına atomik kayıt yapar; önizleme tek başına sınav oluşturmaz.
 3. Kayıtlı sınavdan “Canlı oturum oluştur” seçin. QR kodunu yansıtın; PNG indirme ve bağlantı kopyalama kullanılabilir.
-4. Katılımcılar takma adla katılır. Lobi listesi canlı güncellenir. “Başlat” ile yeni katılım kapanır.
-5. Sorular tam 45 saniye açık kalır. Herkes cevap verse bile süre kısalmaz. Katılımcı yalnızca bir cevap verebilir.
+4. Katılımcılar takma adla katılır. Lobi listesi canlı güncellenir. “Her soru için süre (saniye)” alanına 5–300 arasında bir değer yazın. “Başlat” seçilen süreyi kaydeder ve yeni katılımı kapatır.
+5. Oturumdaki tüm sorular seçtiğiniz süre kadar açık kalır. Oturum başladıktan sonra süre değiştirilemez. Herkes cevap verse bile süre kısalmaz. Katılımcı yalnızca bir cevap verebilir.
 6. Süre sonunda doğru şık yeşil ve “✓ Doğru cevap”, diğer şıklar kırmızı görünür. Grafik, cevap vermeyen sayısı ve kaynak açıklaması açılır. “Sonraki soru” yöneticidedir.
 7. Son sorudan sonra “Oturumu bitir” seçin. Katılımcı kendi doğru/yanlış/boş sayılarını, yönetici “Cevap kayıtlarını göster” ile soru bazındaki tüm cevapları görür.
 
@@ -71,7 +71,7 @@ Yalnızca `.docx`, en fazla **5 MB**, en fazla **300 soru** kabul edilir. Açıl
 - Yazma istekleri `PUBLIC_BASE_URL` origin kontrolü ve özel istek başlığı gerektirir. Yalnızca yerel HTTP yapılandırmasında aynı porttaki localhost/127.0.0.1/IPv6 loopback adresleri eşdeğer kabul edilir; HTTPS/Render için tam origin eşleşmesi korunur. Yönetici yazmalarında ayrıca CSRF token kontrolü vardır. WebSocket origin ve oturum doğrulaması yapar; WebSocket üzerinden kontrol/cevap komutu kabul edilmez.
 - Katılımcı token'ları sunucuda hash olarak saklanır; takma ad yetki sağlamaz. Takma adlar NFKC normalizasyonu, baş/son boşluk temizliği ve büyük/küçük harf eşleştirmesiyle aynı oturumda benzersizdir. Katılımcı çerezi 7 gün saklanır. Cihaz/tarayıcı değiştirmek veya çerezi silmek katılımcı kimliğini kaybettirir.
 - Veritabanı benzersizlik kuralları ve atomik işlemler yinelenen cevapları engeller. Aynı cevap açık soru içinde güvenle tekrar gönderilebilir; değiştirilemez. Süre bitince tekrarlar dahil tüm cevap istekleri reddedilir. Yönetici kontrolü beklenen oturum sürümünü, oturum oluşturma ise istek kimliğini kullanır.
-- Soru bitiş zamanı UTC Unix zaman damgası olarak saklanır. Başlangıçtan 45 saniye sonra sunucu cevap kabulünü kapatır. Yeniden başlatma kalan süreyi sıfırlamaz; süresi geçmiş soru sonuç aşamasına geçer.
+- Soru bitiş zamanı UTC Unix zaman damgası olarak saklanır. Yöneticinin seçtiği süre dolunca sunucu cevap kabulünü kapatır. Süre oturum kaydında tutulur; bir sonraki soru da aynı süreyle başlar. Yeniden başlatma kalan süreyi sıfırlamaz; süresi geçmiş soru sonuç aşamasına geçer.
 - Canlı durumlar WebSocket üzerinden en geç yaklaşık 0,5 saniyede yenilenir. Görsel sayaç sunucunun kalan süresi ve tarayıcının monoton saatiyle çalışır; kabul kararını her zaman sunucu verir. Bağlantı kaybında yeniden bağlanılır ve güncel durum alınır.
 - Tek instance/worker mimarisi hedeflenmiştir. Çoklu instance ve yüksek eşzamanlı katılımcı kapasitesi için yük testi ve paylaşımlı yayın/veritabanı mimarisi gerekir; bu sürümde kapasite iddiası yoktur.
 
@@ -134,7 +134,7 @@ docker run --rm --name bilkent-exam -p 8000:10000 \
 
 ## Migration, yedekleme ve geri yükleme
 
-`migrations/001_initial.sql`, `002_session_requests.sql` ve `003_question_context.sql` sıralı çalışır. `schema_migrations` tablosu uygulanan dosyaları izler; her dosya ve kayıt makbuzu aynı transaction'da commit edilir. Yeniden başlatma veya deploy mevcut tabloları silmez. Yeni şema değişiklikleri için yeni numaralı dosya ekleyin; uygulanmış migration'ları değiştirmeyin.
+`migrations/001_initial.sql`, `002_session_requests.sql`, `003_question_context.sql` ve `004_session_duration.sql` sıralı çalışır. `schema_migrations` tablosu uygulanan dosyaları izler; her dosya ve kayıt makbuzu aynı transaction'da commit edilir. Yeniden başlatma veya deploy mevcut tabloları silmez. Süre migration’ı mevcut oturumları ve cevapları korur, eski oturumlara 45 saniye varsayılanı ekler. Yeni şema değişiklikleri için yeni numaralı dosya ekleyin; uygulanmış migration'ları değiştirmeyin.
 
 Çalışan SQLite'ı düz `cp` ile yedeklemeyin; WAL dosyaları nedeniyle eksik yedek oluşabilir. Dahili komut SQLite backup API'sini kullanır:
 

@@ -30,6 +30,7 @@ class Answer(BaseModel):
 class Control(BaseModel):
     action: str
     expected_version: int
+    question_duration_seconds: StrictInt | None = Field(default=None, ge=5, le=300)
 
 class Save(BaseModel):
     preview_id: str = Field(max_length=80)
@@ -249,7 +250,7 @@ def create_app(settings=None):
 
     @app.post('/api/admin/sessions/{sid}/control')
     def control(sid: str, data: Control):
-        game.advance(db, sid, data.action, data.expected_version)
+        game.advance(db, sid, data.action, data.expected_version, data.question_duration_seconds)
         return game.state(db, sid, admin=True)
 
     @app.get('/api/admin/sessions/{sid}/history')

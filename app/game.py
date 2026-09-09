@@ -6,8 +6,6 @@ import time
 import unicodedata
 from fastapi import HTTPException
 
-DURATION = 45
-
 def digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -48,24 +46,29 @@ def join(db, sid, nickname, old_token):
             raise HTTPException(409, 'Bu takma ad kullanımda. Başka bir takma ad seç.')
         return token
 
-def advance(db, sid, action, expected_version):
+def advance(db, sid, action, expected_version, question_duration_seconds=None):
     with db.transaction() as conn:
         now = time.time()
         expire(conn, sid, now)
         session = session_row(conn, sid)
         if session['version'] != expected_version:
             raise HTTPException(409, 'Oturum değişti. Güncel ekranı kontrol edin.')
+        duration = session['question_duration_seconds']
+        if question_duration_seconds is not None:
+            if action != 'start' or type(question_duration_seconds) is not int or not 5 <= question_duration_seconds <= 300:
+                raise HTTPException(422, 'Süre yalnızca oturumu başlatırken 5–300 saniye arasında belirlenebilir.')
+            duration = question_duration_seconds
         count = conn.execute('SELECT COUNT(*) FROM questions WHERE exam_id=?', (session['exam_id'],)).fetchone()[0]
         if action == 'start' and session['phase'] == 'lobby':
-            index, phase, deadline = 0, 'question', now + DURATION
+            index, phase, deadline = 0, 'question', now + duration
         elif action == 'next' and session['phase'] == 'results' and session['question_index'] + 1 < count:
-            index, phase, deadline = session['question_index'] + 1, 'question', now + DURATION
+            index, phase, deadline = session['question_index'] + 1, 'question', now + duration
         elif action == 'finish' and session['phase'] == 'results' and session['question_index'] == count - 1:
             index, phase, deadline = session['question_index'], 'finished', session['deadline']
         else:
             raise HTTPException(409, 'Bu aşamada bu işlem yapılamaz.')
-        conn.execute('UPDATE sessions SET phase=?,question_index=?,deadline=?,version=version+1,finished_at=? WHERE id=?',
-                     (phase, index, deadline, now if phase == 'finished' else None, sid))
+        conn.execute('UPDATE sessions SET phase=?,question_index=?,deadline=?,version=version+1,finished_at=?,question_duration_seconds=? WHERE id=?',
+                     (phase, index, deadline, now if phase == 'finished' else None, duration, sid))
 
 def answer(db, sid, token, question_id, choice):
     with db.transaction() as conn:
@@ -102,6 +105,7 @@ def state(db, sid, token=None, admin=False):
         count = conn.execute('SELECT COUNT(*) FROM questions WHERE exam_id=?', (s['exam_id'],)).fetchone()[0]
         result = {'joined': bool(p), 'session_id': sid, 'title': s['title'], 'phase': s['phase'],
                   'version': s['version'], 'question_index': s['question_index'], 'question_count': count,
+                  'question_duration_seconds': s['question_duration_seconds'],
                   'server_now': now, 'deadline': s['deadline'], 'participant_count': len(participants),
                   'remaining_seconds': max(0, s['deadline'] - now) if s['phase'] == 'question' else 0}
         if admin:

@@ -3,6 +3,7 @@ const admin = location.pathname.startsWith('/admin/');
 const sid = location.pathname.split('/').filter(Boolean).at(-1);
 const base = admin ? `/api/admin/sessions/${sid}` : `/api/sessions/${sid}`;
 const stage = $('#stage');
+let durationDraft = null;
 let current, signature='', socket, online=false, retry=0, stopped=false, pending=false, anchor=0, remaining=0;
 $('#back').hidden = !admin;
 document.body.classList.toggle('projector', admin);
@@ -20,10 +21,12 @@ function updateTimer() {
 }
 setInterval(updateTimer,100);
 function apply(state) {
+  const durationFocused = document.activeElement?.id === 'question-duration';
+  if(state.phase !== 'lobby') durationDraft = null;
   current=state; remaining=state.remaining_seconds || 0; anchor=performance.now();
   const {server_now, remaining_seconds, ...stable} = state;
   const next=JSON.stringify(stable);
-  if (signature!==next) {signature=next; render();}
+  if (signature!==next) {signature=next; render(); if(durationFocused) $('#question-duration')?.focus({preventScroll:true});}
   updateTimer();
 }
 async function refresh() {apply(await api(base));}
@@ -59,10 +62,10 @@ function render() {
     return;
   }
   if(current.phase==='lobby') {
-    stage.innerHTML=title()+(admin?`<div class="lobby-grid"><section class="card qr-card"><span class="eyebrow">KATILMAK İÇİN QR KODU OKUTUN</span><img class="qr" src="${base}/qr.png" alt="Bu canlı oturuma katılım QR kodu"><div class="qr-actions"><a class="button secondary" href="${base}/qr.png" download="bilkent-katilim.png">PNG indir ↓</a><button id="copy" class="secondary">Bağlantıyı kopyala</button></div><label class="sr-only" for="join-url">Katılım bağlantısı</label><input id="join-url" class="link-input" value="${e(current.join_url)}" readonly></section><section class="card lobby-people"><div class="section-heading"><h2>Katılımcılar</h2><span class="count">${current.participant_count}</span></div><p class="muted">Herkes katıldığında eğitimi başlatın.</p><div class="names">${current.participants.map(name=>`<span class="name-chip">${e(name)}</span>`).join('')||'<p class="empty-people">İlk katılımcı bekleniyor…</p>'}</div><div class="lobby-bottom"><p class="footnote">Başlattıktan sonra yeni katılımcı alınmaz.<br>Her soru 45 saniye açık kalır.</p><button class="primary full" data-control="start">Başlat →</button></div></section></div>`:`<section class="card waiting centered"><span class="waiting-dot" aria-hidden="true"></span><span class="eyebrow">HAZIRSIN, ${e(current.nickname)}</span><h2>Yöneticinin başlatması<br>bekleniyor</h2><p class="muted">İlk soru başladığında burada görünecek.</p><span class="badge">Her soru için 45 saniye</span></section>`);
+    stage.innerHTML=title()+(admin?`<div class="lobby-grid"><section class="card qr-card"><span class="eyebrow">KATILMAK İÇİN QR KODU OKUTUN</span><img class="qr" src="${base}/qr.png" alt="Bu canlı oturuma katılım QR kodu"><div class="qr-actions"><a class="button secondary" href="${base}/qr.png" download="bilkent-katilim.png">PNG indir ↓</a><button id="copy" class="secondary">Bağlantıyı kopyala</button></div><label class="sr-only" for="join-url">Katılım bağlantısı</label><input id="join-url" class="link-input" value="${e(current.join_url)}" readonly></section><section class="card lobby-people"><div class="section-heading"><h2>Katılımcılar</h2><span class="count">${current.participant_count}</span></div><p class="muted">Herkes katıldığında eğitimi başlatın.</p><div class="names">${current.participants.map(name=>`<span class="name-chip">${e(name)}</span>`).join('')||'<p class="empty-people">İlk katılımcı bekleniyor…</p>'}</div><div class="lobby-bottom"><label for="question-duration">Her soru için süre (saniye)</label><input id="question-duration" type="number" min="5" max="300" step="1" required value="${e(durationDraft ?? current.question_duration_seconds)}" aria-describedby="duration-note"><p id="duration-note" class="footnote">5–300 saniye. Seçilen süre tüm sorulara uygulanır.<br>Başlattıktan sonra süre değiştirilemez ve yeni katılımcı alınmaz.</p><button class="primary full" data-control="start">Başlat →</button></div></section></div>`:`<section class="card waiting centered"><span class="waiting-dot" aria-hidden="true"></span><span class="eyebrow">HAZIRSIN, ${e(current.nickname)}</span><h2>Yöneticinin başlatması<br>bekleniyor</h2><p class="muted">İlk soru başladığında burada görünecek.</p><span class="badge">Süreyi yönetici belirler</span></section>`);
   } else if(current.phase==='question'||current.phase==='results') {
     const q=current.question, results=current.phase==='results';
-    stage.innerHTML=title()+`<section class="question-panel"><div class="question-meta"><span class="eyebrow">SORU ${current.question_index+1} / ${current.question_count}</span>${results?'<span class="badge">Cevaplama sona erdi</span>':'<div class="timer" role="timer" aria-label="Kalan saniye"><strong id="timer">45</strong><span>saniye</span></div>'}</div>${q.topic?`<p class="topic">${e(q.topic)}</p>`:""}<h2 class="question-text">${e(q.text)}</h2><div class="options">${q.options.map((option,i)=>results?`<div class="option result-option ${q.correct===i?'correct':'incorrect'}"><span class="letter">${letter(i)}</span><div class="grow">${e(option)}<small>${q.correct===i?'✓ Doğru cevap':'✕'}${current.own_choice===i?' · Senin cevabın':''}</small></div><span class="result-count">${current.distribution[i]}<small>cevap</small></span></div>`:admin?`<div class="option"><span class="letter">${letter(i)}</span><span>${e(option)}</span></div>`:`<button class="option ${current.own_choice===i?'selected':''}" data-choice="${i}" ${current.own_choice!=null?'disabled':''}><span class="letter">${letter(i)}</span><span>${e(option)}</span>${current.own_choice===i?'<span class="selected-mark">✓</span>':''}</button>`).join('')}</div>${results?chart()+explanation():`<p class="answer-status" role="status">${!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi, sonuçlar bekleniyor':admin?'Cevaplar alınıyor. Sonuçlar 45 saniyenin sonunda açılacak.':'Cevabını seç. Kaydettikten sonra değiştiremezsin.'}</p>`}</section>`;
+    stage.innerHTML=title()+`<section class="question-panel"><div class="question-meta"><span class="eyebrow">SORU ${current.question_index+1} / ${current.question_count}</span>${results?'<span class="badge">Cevaplama sona erdi</span>':'<div class="timer" role="timer" aria-label="Kalan saniye"><strong id="timer">—</strong><span>saniye</span></div>'}</div>${q.topic?`<p class="topic">${e(q.topic)}</p>`:""}<h2 class="question-text">${e(q.text)}</h2><div class="options">${q.options.map((option,i)=>results?`<div class="option result-option ${q.correct===i?'correct':'incorrect'}"><span class="letter">${letter(i)}</span><div class="grow">${e(option)}<small>${q.correct===i?'✓ Doğru cevap':'✕'}${current.own_choice===i?' · Senin cevabın':''}</small></div><span class="result-count">${current.distribution[i]}<small>cevap</small></span></div>`:admin?`<div class="option"><span class="letter">${letter(i)}</span><span>${e(option)}</span></div>`:`<button class="option ${current.own_choice===i?'selected':''}" data-choice="${i}" ${current.own_choice!=null?'disabled':''}><span class="letter">${letter(i)}</span><span>${e(option)}</span>${current.own_choice===i?'<span class="selected-mark">✓</span>':''}</button>`).join('')}</div>${results?chart()+explanation():`<p class="answer-status" role="status">${!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi, sonuçlar bekleniyor':admin?'Cevaplar alınıyor. Seçilen süre dolunca sonuçlar açılacak.':'Cevabını seç. Kaydettikten sonra değiştiremezsin.'}</p>`}</section>`;
     if(results) stage.insertAdjacentHTML('beforeend',`<div class="stage-bottom"><p class="muted">${admin?'Sonuçları değerlendirin; hazır olduğunuzda devam edin.':'Yöneticinin devam etmesi bekleniyor.'}</p>${admin?`<button class="primary" data-control="${current.question_index+1===current.question_count?'finish':'next'}">${current.question_index+1===current.question_count?'Oturumu bitir':'Sonraki soru →'}</button>`:''}</div>`);
   } else if(current.phase==='finished') {
     stage.innerHTML=title()+`<section class="card completed centered"><span class="completion-icon" aria-hidden="true">✓</span><span class="eyebrow">EĞİTİM TAMAMLANDI</span><h2>${admin?'Oturum tamamlandı':'Katıldığın için teşekkürler'}</h2>${admin?'<p class="muted">Katılımcıların soru bazında yanıtları aşağıda.</p><button id="history-button" class="secondary">Cevap kayıtlarını göster</button>':`<p class="muted">İşte bu eğitimdeki yanıtların.</p><div class="summary"><div><strong>${current.summary.correct}</strong><span>✓ Doğru</span></div><div><strong>${current.summary.wrong}</strong><span>✕ Yanlış</span></div><div><strong>${current.summary.blank}</strong><span>– Boş</span></div></div>`}</section><div id="history"></div>`;
@@ -82,14 +85,20 @@ stage.addEventListener('submit',async event=>{
   try {await api(`${base}/join`,{nickname:$('#nickname').value}); await refresh(); connect();}
   catch(error){showError(error);button.disabled=false;}
 });
+stage.addEventListener('input',event=>{
+  if(event.target.id==='question-duration') durationDraft=event.target.value;
+});
 stage.addEventListener('click',async event=>{
   const answerButton=event.target.closest('[data-choice]'), controlButton=event.target.closest('[data-control]');
   if(answerButton||controlButton) {
     if(pending||!online) return;
+    const durationInput = controlButton?.dataset.control === 'start' ? $('#question-duration') : null;
+    if(durationInput && !durationInput.reportValidity()) return;
+    const duration = durationInput ? durationInput.valueAsNumber : undefined;
     pending=true; updateTimer(); showError(null);
     try {
       if(answerButton) await api(`${base}/answers`,{question_id:current.question.id,choice:Number(answerButton.dataset.choice)});
-      else await api(`${base}/control`,{action:controlButton.dataset.control,expected_version:current.version});
+      else await api(`${base}/control`,{action:controlButton.dataset.control,expected_version:current.version,...(duration!==undefined?{question_duration_seconds:duration}:{})});
       await refresh();
     } catch(error) {
       showError(new Error(answerButton?`Cevap işlemi tamamlanamadı: ${error.message}`:error.message));
