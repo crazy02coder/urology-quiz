@@ -11,11 +11,11 @@ import qrcode
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .config import ROOT, Settings
 from .db import Database
-from . import game, importer
+from . import game, importer, flexible_import
 
 class Login(BaseModel):
     password: str = Field(max_length=500)
@@ -34,6 +34,8 @@ class Control(BaseModel):
 
 class Save(BaseModel):
     preview_id: str = Field(max_length=80)
+    questions: list[dict] | None = Field(default=None, max_length=300)
+    review_confirmed: StrictBool = False
 
 class NewSession(BaseModel):
     request_id: str = Field(min_length=16, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
@@ -46,7 +48,7 @@ class BodyLimit:
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http' or scope['method'] not in ('POST', 'PUT', 'PATCH'):
             return await self.app(scope, receive, send)
-        limit = importer.MAX_FILE_BYTES if scope['path'].endswith('/imports/preview') else 32768
+        limit = importer.MAX_FILE_BYTES if scope['path'] in ('/api/admin/imports/preview', '/api/admin/exams') else 32768
         chunks, total = [], 0
         while True:
             message = await receive()
@@ -54,7 +56,7 @@ class BodyLimit:
                 return
             total += len(message.get('body', b''))
             if total > limit:
-                return await JSONResponse({'detail': 'Dosya en fazla 5 MB, diğer istekler en fazla 32 KB olabilir.'}, 413)(scope, receive, send)
+                return await JSONResponse({'detail': 'Dosya ve sınav kaydı en fazla 5 MB, diğer istekler en fazla 32 KB olabilir.'}, 413)(scope, receive, send)
             chunks.append(message)
             if not message.get('more_body'):
                 break
@@ -204,12 +206,12 @@ def create_app(settings=None):
         if Path(filename).suffix.lower() not in importer.ALLOWED_EXTENSIONS:
             raise HTTPException(415, 'Bu dosya türü desteklenmiyor.')
         content = await request.body()
-        questions = importer.parse_file(filename, content)
-        return importer.create_preview(db, request.state.admin['token_hash'], unquote(request.headers.get('x-exam-title', '')), questions)
+        extraction = await asyncio.to_thread(flexible_import.extract, filename, content)
+        return importer.create_review_preview(db, request.state.admin['token_hash'], unquote(request.headers.get('x-exam-title', '')), extraction)
 
     @app.post('/api/admin/exams')
     def save(data: Save, request: Request):
-        return {'exam_id': importer.save_preview(db, request.state.admin['token_hash'], data.preview_id)}
+        return {'exam_id': importer.save_preview(db, request.state.admin['token_hash'], data.preview_id, data.questions, data.review_confirmed)}
 
     @app.post('/api/admin/exams/{exam_id}/sessions')
     def new_session(exam_id: str, data: NewSession):

@@ -3,3 +3,4 @@ uvicorn[standard]==0.42.0
 python-dotenv==1.2.2
 qrcode[pil]==8.2
 defusedxml==0.7.1
+nltk==3.9.2

@@ -58,7 +58,7 @@ function title() {return `<div class="session-heading"><div><span class="eyebrow
 function render() {
   if(!admin && !current.joined) {
     connection(false,current.phase==='lobby'?'Katılım açık':'Katılım kapalı');
-    stage.innerHTML=`<section class="card join-card"><span class="eyebrow">EĞİTİME KATIL</span><h1>${e(current.title)}</h1>${current.phase==='lobby'?'<p class="muted">Eğitim boyunca seni bu adla tanıyacağız.</p><form id="join-form"><label for="nickname">Takma adın</label><input id="nickname" placeholder="Örn. kizilbaris" minlength="2" maxlength="30" autocomplete="nickname" required><button class="primary full">Oturuma katıl →</button></form>':'<p>Bu oturum başladı veya tamamlandı. Yeni katılımcı alınmıyor.</p><p class="muted">Daha önce katıldıysan aynı tarayıcı ve cihazdan bağlantıyı aç.</p>'}</section>`;
+    stage.innerHTML=`<section class="card join-card"><span class="eyebrow">EĞİTİME KATIL</span><h1>${e(current.title)}</h1>${current.phase==='lobby'?'<p class="muted">Eğitim boyunca seni bu adla tanıyacağız.</p><form id="join-form"><label for="nickname">Takma adın</label><input id="nickname" placeholder="Örn. user1" minlength="2" maxlength="30" autocomplete="nickname" required><button class="primary full">Oturuma katıl →</button></form>':'<p>Bu oturum başladı veya tamamlandı. Yeni katılımcı alınmıyor.</p><p class="muted">Daha önce katıldıysan aynı tarayıcı ve cihazdan bağlantıyı aç.</p>'}</section>`;
     return;
   }
   if(current.phase==='lobby') {

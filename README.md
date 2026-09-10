@@ -34,7 +34,7 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 ## Kullanım
 
 1. `/admin` üzerinden giriş yapın. Sınav başlığını yazıp DOCX soru dosyasını seçin.
-2. “Önizlemeyi aç” ile soru, şık, doğru cevap, konu, ipucu ve açıklamaları kontrol edin. “Sınavı kaydet” veritabanına atomik kayıt yapar; önizleme tek başına sınav oluşturmaz.
+2. “Önizlemeyi aç” ile soru, şık, doğru cevap, konu, ipucu ve açıklamaları kontrol edip düzenleyin. Eksik cevapları seçin ve kontrol kutusunu işaretleyin. “Sınavı kaydet” veritabanına atomik kayıt yapar; önizleme tek başına sınav oluşturmaz.
 3. Kayıtlı sınavdan “Canlı oturum oluştur” seçin. QR kodunu yansıtın; PNG indirme ve bağlantı kopyalama kullanılabilir.
 4. Katılımcılar takma adla katılır. Lobi listesi canlı güncellenir. “Her soru için süre (saniye)” alanına 5–300 arasında bir değer yazın. “Başlat” seçilen süreyi kaydeder ve yeni katılımı kapatır.
 5. Oturumdaki tüm sorular seçtiğiniz süre kadar açık kalır. Oturum başladıktan sonra süre değiştirilemez. Herkes cevap verse bile süre kısalmaz. Katılımcı yalnızca bir cevap verebilir.
@@ -43,11 +43,13 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 
 Sınavlar tekrar kullanılabilir. Her oynatım yeni bir oturum, yeni QR ve ayrı katılımcı/cevap kayıtları oluşturur. Sınavlara taslak/aktif/arşiv durumları eklenmemiştir.
 
-## Gerçek DOCX formatı
+## DOCX içe aktarma ve düzenleme
 
-Yükleyici, sağlanan `Uroloji_Asistan_Vaka_Sorulari.docx` dosyası incelenerek yazılmıştır. Bu dosyada **10 soru**, her soruda **4 şık** bulunur. Cevap anahtarı: **B, C, B, D, A, A, C, D, D, A**. Kaynak dosya değiştirilmemiştir; otomatik test için kopyası `tests/fixtures/uroloji.docx` içindedir.
+Word dosyaları sunucuda **NLTK ve yerel biçim kurallarıyla** okunur. Harici AI servisi, API anahtarı, ücretli abonelik veya kullanım başına ödeme gerekmez. NLTK'nin `RegexpTokenizer` aracı kullanılır; `nltk.download`, dil modeli veya corpus indirmesi yoktur. Python 3.11 ve mevcut Render/Docker build komutları `requirements.txt` üzerinden bağımlılıkları kurar. Render'ın servis ve depolama ücretleri ayrıdır.
 
-Desteklenen düzen (Word'de ayrı paragraflar; cevap bölümünde örnekteki gibi satır sonları kullanılabilir):
+`Soru 1`, `Question 1`, `1.`, `1)` gibi başlıklar; `A)`, `a.`, `B:`, `b-` gibi şıklar; aynı satırdaki sıralı A–B–C şıkları ve ayrı `Cevap Anahtarı: 1-B, 2-C` bölümleri tanınır. Word'ün doğrudan tanımlı sayısal/harfli otomatik listeleri de okunur. Tablo hücreleri satır sırasıyla aktarılır ve kontrol notu gösterilir. Her olası Word düzeninin doğru ayrılması garanti edilmez; belirsiz dosyalar düzenlenebilir taslak olarak açılır.
+
+Örnek düzen:
 
 ```text
 Soru 1 - Konu: Eğitim konusu
@@ -60,9 +62,13 @@ Cevap: B) İkinci seçenek
 Doğru! İsteğe bağlı açıklama.
 ```
 
-Başlık ve giriş paragrafları sınav sorusu sayılmaz. Soru numaraları 1'den itibaren sıralı, şıklar A'dan itibaren kesintisiz olmalıdır. 2–5 şık desteklenir. Cevap harfi mevcut bir şıkla, yanındaki metin de o şıkkın metniyle eşleşmelidir. Soru metni birden fazla paragraf olabilir; şıklar örnekteki gibi tek paragraf olmalıdır. Konu, ipucu ve açıklama korunur. **İpucu, açıklama ve doğru cevap, süre dolmadan katılımcı API veya WebSocket mesajına eklenmez.** Metindeki tıbbi içerik ve cevap anahtarı kaynak dosyadan aktarılır; yükleyici bunları yeniden yorumlamaz.
+Önizlemede soru metni, şıklar, doğru cevap, konu, ipucu ve açıklama düzenlenebilir; soru/şık eklenip silinebilir. Eksik veya çelişkili cevaplar tahmin edilmez. Kaynak metin ve aktarım notları ekranda gösterilir. Soru sınırları bulunamazsa kaynak metinle doldurulacak boş bir soru açılır. Yönetici **“Soruları, şıkları ve doğru cevapları kontrol ettim”** kutusunu işaretlemeden kaydedemez. Alan değişiklikleri bu onayı sıfırlar.
 
-Yalnızca `.docx`, en fazla **5 MB**, en fazla **300 soru** kabul edilir. Açılmış ZIP toplamı 20 MB, ana XML 8 MB ile sınırlıdır. Bozuk/şifreli dosya, makro, XML DTD/entity, tablo, görsel, metin kutusu, içerik denetimi veya izlenen değişiklik içeren belgeler reddedilir. ZIP içeriği diske açılmaz, dış bağlantılar takip edilmez. Hatalar soru ve paragraf/satır numarasıyla gösterilir. Bir hata varsa hiçbir soru kısmen kaydedilmez. Önizleme 1 saat geçerlidir ve oluşturan yönetici oturumuna bağlıdır.
+Kayıtta 1–300 soru, her soruda 2–5 dolu şık ve tek doğru cevap sunucuda doğrulanır. Soru metni en fazla 3000, şık 1000, konu/ipucu/açıklama alanlarının her biri 5000 karakterdir. Bir hata varsa hiçbir soru kısmen kaydedilmez. Önizleme 1 saat geçerlidir ve oluşturan yönetici oturumuna bağlıdır. **İpucu, açıklama ve doğru cevap, süre dolmadan katılımcı API veya WebSocket mesajına eklenmez.** Tıbbi içerik yorumlanmaz; doğru cevabın içerik açısından kontrolü yöneticidedir.
+
+Yalnızca `.docx`, en fazla **5 MB** dosya ve **250.000 karakter** okunabilir belge metni kabul edilir. Açılmış ZIP toplamı 20 MB, ana XML 8 MB ve numaralandırma XML'i 1 MB ile sınırlıdır. Bozuk/şifreli dosyalar, makrolar, XML DTD/entity ve izlenen değişiklikler reddedilir. Görseller ve metin kutuları okunmaz; ilgili uyarı gösterilir. OCR yoktur. ZIP içeriği diske açılmaz, dış bağlantılar takip edilmez ve dosyalar harici bir hizmete gönderilmez.
+
+Sağlanan `Uroloji_Asistan_Vaka_Sorulari.docx` dosyası 10 soru ve her soruda 4 şık içerir. Kaynak cevap anahtarı: **B, C, B, D, A, A, C, D, D, A**. Kaynak dosya değiştirilmemiştir; kopyası `tests/fixtures/uroloji.docx` içindedir.
 
 ## Oturum ve güvenlik
 

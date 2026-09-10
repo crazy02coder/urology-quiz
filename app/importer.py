@@ -17,9 +17,9 @@ from fastapi import HTTPException
 MAX_FILE_BYTES = 5 * 1024 * 1024
 ALLOWED_EXTENSIONS: frozenset[str] = frozenset({'.docx'})
 
-def parse_file(filename: str, content: bytes) -> list[dict]:
+def load_docx(filename: str, content: bytes):
     if Path(filename).suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise HTTPException(415, 'Yalnızca örnekteki düzende .docx dosyaları destekleniyor.')
+        raise HTTPException(415, 'Yalnızca .docx dosyaları destekleniyor.')
     if len(content) > MAX_FILE_BYTES:
         raise HTTPException(413, 'Dosya en fazla 5 MB olabilir.')
     try:
@@ -36,8 +36,18 @@ def parse_file(filename: str, content: bytes) -> list[dict]:
             if b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():
                 raise HTTPException(422, 'DOCX içinde desteklenmeyen XML tanımı var.')
             root = SafeET.fromstring(xml, forbid_dtd=True)
+            numbering = None
+            if 'word/numbering.xml' in archive.namelist():
+                info = archive.getinfo('word/numbering.xml')
+                if info.file_size > 1024*1024:
+                    raise HTTPException(422, 'Word numaralandırma bilgisi çok büyük.')
+                numbering = SafeET.fromstring(archive.read(info), forbid_dtd=True)
     except (BadZipFile, KeyError, ET.ParseError, DefusedXmlException, RuntimeError, OSError, ValueError):
         raise HTTPException(422, 'Geçerli, şifresiz bir DOCX dosyası yükleyin.')
+    return root, numbering
+
+def parse_file(filename: str, content: bytes) -> list[dict]:
+    root, _ = load_docx(filename, content)
     ns = {'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
     w = '{' + ns['w'] + '}'
     body = root.find('w:body', ns)
@@ -151,14 +161,31 @@ def create_preview(db, admin_hash, title, questions):
                      (preview_id, admin_hash, title, json.dumps(cleaned), time.time() + 3600))
     return {'preview_id': preview_id, 'title': title, 'questions': cleaned}
 
-def save_preview(db, admin_hash, preview_id):
+def create_review_preview(db, admin_hash, title, extraction):
+    title = title.strip()
+    if not 1 <= len(title) <= 160:
+        raise HTTPException(422, 'Sınav başlığı 1–160 karakter olmalı.')
+    draft = {**extraction, 'requires_review': True}
+    preview_id = secrets.token_urlsafe(24)
+    with db.transaction() as conn:
+        conn.execute('DELETE FROM previews WHERE expires_at < ?', (time.time(),))
+        conn.execute('INSERT INTO previews VALUES (?,?,?,?,?,NULL)',
+                     (preview_id, admin_hash, title, json.dumps(draft), time.time() + 3600))
+    return {'preview_id': preview_id, 'title': title, **draft}
+
+def save_preview(db, admin_hash, preview_id, edited_questions=None, review_confirmed=False):
     with db.transaction() as conn:
         preview = conn.execute('SELECT * FROM previews WHERE id=? AND admin_hash=?', (preview_id, admin_hash)).fetchone()
         if not preview or preview['expires_at'] < time.time():
             raise HTTPException(404, 'Önizleme bulunamadı veya süresi doldu. Dosyayı yeniden yükleyin.')
         if preview['exam_id']:
             return preview['exam_id']
-        questions = validate_questions(json.loads(preview['questions']))
+        stored = json.loads(preview['questions'])
+        if isinstance(stored, dict):
+            if not review_confirmed:
+                raise HTTPException(422, 'Soruları, şıkları ve doğru cevapları kontrol ettiğinizi onaylayın.')
+            stored = stored['questions']
+        questions = validate_questions(edited_questions if edited_questions is not None else stored)
         exam_id = secrets.token_urlsafe(16)
         conn.execute('INSERT INTO exams VALUES (?,?,?)', (exam_id, preview['title'], time.time()))
         for i, q in enumerate(questions):
