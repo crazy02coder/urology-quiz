@@ -6,8 +6,9 @@ export async function api(path, data, extras = {}) {
   const headers = {'X-Requested-With':'BilkentQuiz', ...extras.headers};
   if (csrf) headers['X-CSRF-Token'] = csrf;
   const options = {credentials:'same-origin', headers};
+  if (extras.method) options.method = extras.method;
   if (data !== undefined) {
-    options.method = 'POST';
+    options.method ||= 'POST';
     if (data instanceof File) { options.body = data; headers['Content-Type'] = 'application/octet-stream'; }
     else { options.body = JSON.stringify(data); headers['Content-Type'] = 'application/json'; }
   }

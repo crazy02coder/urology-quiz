@@ -1,42 +1,89 @@
 import {$, api, authorize, showError, escape as e, letter, date} from './common.js';
 let previewId, previewQuestions = [], saving = false;
 const sessionRequests = new Map();
-const phaseNames = {lobby:'Katılımcılar bekleniyor',question:'Soru açık',results:'Sonuçlar',finished:'Tamamlandı'};
+const deleteDialog = $('#delete-exam-dialog');
+let deletingExam = null;
+function requestId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
 async function refresh() {
-  const [exams, sessions, status] = await Promise.all([api('/api/admin/exams'),api('/api/admin/sessions'),api('/api/admin/imports/status')]);
+  const [exams, status] = await Promise.all([api('/api/admin/exams'),api('/api/admin/imports/status')]);
   $('#exam-count').textContent = exams.length;
-  $('#exams').innerHTML = exams.length ? exams.map(exam => `<article class="card exam-row"><div class="exam-icon" aria-hidden="true">≡</div><div class="grow"><h3>${e(exam.title)}</h3><p class="muted">${exam.question_count} soru <span aria-hidden="true">·</span> ${date(exam.created_at)}</p></div><button class="secondary create-session" data-id="${e(exam.id)}">Canlı oturum oluştur ↗</button></article>`).join('') : '<div class="empty"><span class="empty-icon" aria-hidden="true">≡</span><h3>Henüz kayıtlı sınav yok</h3><p>İlk sınavınızı soru dosyanızdan oluşturun.<br>Kaydetmeden önce tüm soruları kontrol edebilirsiniz.</p></div>';
-  $('#sessions').innerHTML = sessions.length ? sessions.map(s => `<a href="/admin/sessions/${e(s.id)}" class="card session-row"><div><h3>${e(s.title)}</h3><span class="muted">${date(s.created_at)} · ${s.participant_count} katılımcı</span></div><span class="badge ${s.phase==='finished'?'neutral':''}">${phaseNames[s.phase]}</span><span aria-hidden="true">→</span></a>`).join('') : '<div class="empty small-empty">Bir sınavdan canlı oturum oluşturduğunuzda burada görünecek.</div>';
+  $('#exams').innerHTML = exams.length ? exams.map(exam => `<article class="card exam-row"><div class="exam-icon" aria-hidden="true">≡</div><div class="grow"><h3>${e(exam.title)}</h3><p class="muted">${exam.question_count} soru <span aria-hidden="true">·</span> ${date(exam.created_at)}</p></div><div class="exam-actions"><button class="secondary create-session" data-id="${e(exam.id)}">Sınavı başlat ↗</button><button class="delete-exam" data-id="${e(exam.id)}" data-title="${e(exam.title)}" aria-label="${e(exam.title)} sınavını sil">Sil</button></div></article>`).join('') : '<div class="empty"><span class="empty-icon" aria-hidden="true">≡</span><h3>Henüz kayıtlı sınav yok</h3><p>İlk sınavınızı soru dosyanızdan oluşturun.<br>Kaydetmeden önce tüm soruları kontrol edebilirsiniz.</p></div>';
   if (status.enabled) {
     $('#file').disabled = false; $('#file').accept = status.extensions.join(','); $('#preview-button').disabled = false;
-    $('#import-note').textContent = `DOCX · Farklı soru ve şık düzenleri okunur; önizlemede kontrol edip düzenleyin. İpuçları ve açıklamalar süre bittikten sonra gösterilir.`;
+    $('#import-note').textContent = `DOCX · Sınav adı ve dosya seçildikten sonra sorular otomatik hazırlanıp kaydedilir.`;
   }
 }
 $('#exams').addEventListener('click', async event => {
+  const deleteButton = event.target.closest('.delete-exam');
+  if (deleteButton) {
+    deletingExam = {id: deleteButton.dataset.id, title: deleteButton.dataset.title};
+    $('#delete-exam-description').textContent = `“${deletingExam.title}” adlı sınavı silmek istediğinize emin misiniz?`;
+    $('#delete-exam-error').textContent = '';
+    deleteDialog.showModal();
+    return;
+  }
   const button = event.target.closest('.create-session'); if (!button) return;
   button.disabled = true; showError(null);
   const id = button.dataset.id;
-  if (!sessionRequests.has(id)) sessionRequests.set(id, crypto.randomUUID());
+  if (!sessionRequests.has(id)) sessionRequests.set(id, requestId());
   try { const result = await api(`/api/admin/exams/${id}/sessions`, {request_id:sessionRequests.get(id)}); location.href = `/admin/sessions/${result.session_id}`; }
   catch(error) { showError(error); button.disabled = false; }
+});
+$('#confirm-delete-exam').onclick = async event => {
+  if (!deletingExam) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  $('#delete-exam-error').textContent = '';
+  try {
+    await api(`/api/admin/exams/${deletingExam.id}`, undefined, {method:'DELETE'});
+    deleteDialog.close();
+    await refresh();
+  } catch(error) {
+    $('#delete-exam-error').textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+};
+deleteDialog.addEventListener('close', () => {
+  deletingExam = null;
+  $('#delete-exam-error').textContent = '';
 });
 $('#logout').onclick = async () => { try { await api('/api/admin/logout', {}); location.href='/admin'; } catch(error) { showError(error); } };
 $('#upload-form').onsubmit = async event => {
   event.preventDefault(); if (saving) return;
-  showError(null); const button = event.submitter; button.disabled = true;
-  $('#preview-section').hidden = true; previewId = null; previewQuestions = []; invalidateReview();
+  saving = true;
+  showError(null);
+  const button = event.submitter || $('#preview-button');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Sınav hazırlanıyor…';
+  $('#upload-status').hidden = true;
+  $('#preview-section').hidden = true;
+  previewId = null;
+  previewQuestions = [];
   try {
     const file = $('#file').files[0];
     if (!file || file.size > 5*1024*1024) throw new Error('En fazla 5 MB büyüklüğünde bir soru dosyası seçin.');
     const preview = await api('/api/admin/imports/preview', file, {headers:{'X-Filename':encodeURIComponent(file.name),'X-Exam-Title':encodeURIComponent($('#title').value)}});
-    previewId = preview.preview_id;
-    previewQuestions = preview.questions;
-    $('#preview-info').innerHTML = `<h3>${e(preview.title)}</h3><p class="notice">Alanları düzenleyebilir, soru ve şık ekleyip silebilirsiniz. Doğru cevapları kaynak dosyanızla karşılaştırın.</p>${warningList(preview.warnings)}<details><summary>Word’den okunan tüm metni göster</summary><pre class="source-text">${e(preview.source_text)}</pre></details>`;
-    $('#preview-error').textContent = '';
-    renderPreview();
-    $('#preview-section').hidden = false; $('#preview-section').scrollIntoView({behavior:'auto'});
-  } catch(error) { showError(error); } finally { button.disabled = false; }
+    await api('/api/admin/exams', {preview_id:preview.preview_id, review_confirmed:true});
+    $('#upload-form').reset();
+    $('#upload-status').textContent = `“${preview.title}” sınavı hazırlandı ve kaydedildi.`;
+    $('#upload-status').hidden = false;
+    await refresh();
+  } catch(error) {
+    showError(new Error(`Sınav hazırlanamadı: ${error.message}`));
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 };
+
+// Eski manuel önizleme editörü geri dönüş gerekirse kullanılmak üzere pasif tutuluyor.
 function warningList(warnings = []) {
   return warnings.length ? `<div class="notice"><strong>Aktarım notları</strong><ul>${warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul></div>` : '';
 }

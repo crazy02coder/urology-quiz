@@ -194,6 +194,21 @@ def create_app(settings=None):
         with db.connect() as conn:
             return [dict(r) for r in conn.execute('SELECT e.*,COUNT(q.id) AS question_count FROM exams e LEFT JOIN questions q ON q.exam_id=e.id GROUP BY e.id ORDER BY e.created_at DESC')]
 
+    @app.delete('/api/admin/exams/{exam_id}')
+    def delete_exam(exam_id: str):
+        with db.transaction() as conn:
+            exam = conn.execute('SELECT title FROM exams WHERE id=?', (exam_id,)).fetchone()
+            if not exam:
+                raise HTTPException(404, 'Kayıtlı sınav bulunamadı.')
+            conn.execute('DELETE FROM answers WHERE session_id IN (SELECT id FROM sessions WHERE exam_id=?)', (exam_id,))
+            conn.execute('DELETE FROM participants WHERE session_id IN (SELECT id FROM sessions WHERE exam_id=?)', (exam_id,))
+            conn.execute('DELETE FROM session_requests WHERE exam_id=?', (exam_id,))
+            conn.execute('DELETE FROM sessions WHERE exam_id=?', (exam_id,))
+            conn.execute('DELETE FROM previews WHERE exam_id=?', (exam_id,))
+            conn.execute('DELETE FROM questions WHERE exam_id=?', (exam_id,))
+            conn.execute('DELETE FROM exams WHERE id=?', (exam_id,))
+        return {'deleted': True}
+
     @app.get('/api/admin/imports/status')
     def import_status():
         return {'enabled': bool(importer.ALLOWED_EXTENSIONS), 'extensions': sorted(importer.ALLOWED_EXTENSIONS), 'max_bytes': importer.MAX_FILE_BYTES}

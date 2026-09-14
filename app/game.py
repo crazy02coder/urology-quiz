@@ -15,7 +15,7 @@ def participant_cookie(sid):
 def session_row(conn, sid):
     row = conn.execute('SELECT s.*, e.title FROM sessions s JOIN exams e ON e.id=s.exam_id WHERE s.id=?', (sid,)).fetchone()
     if not row:
-        raise HTTPException(404, 'Oturum bulunamadı.')
+        raise HTTPException(404, 'Sınav bulunamadı.')
     return row
 
 def participant_row(conn, sid, token):
@@ -37,7 +37,7 @@ def join(db, sid, nickname, old_token):
         if existing:
             return old_token
         if session['phase'] != 'lobby':
-            raise HTTPException(409, 'Oturum başladı. Yeni katılımcı alınmıyor.')
+            raise HTTPException(409, 'Sınav başladı. Yeni katılımcı alınmıyor.')
         token = secrets.token_urlsafe(32)
         try:
             conn.execute('INSERT INTO participants VALUES (?,?,?,?,?,?)',
@@ -52,11 +52,11 @@ def advance(db, sid, action, expected_version, question_duration_seconds=None):
         expire(conn, sid, now)
         session = session_row(conn, sid)
         if session['version'] != expected_version:
-            raise HTTPException(409, 'Oturum değişti. Güncel ekranı kontrol edin.')
+            raise HTTPException(409, 'Sınav durumu değişti. Güncel ekranı kontrol edin.')
         duration = session['question_duration_seconds']
         if question_duration_seconds is not None:
             if action != 'start' or type(question_duration_seconds) is not int or not 5 <= question_duration_seconds <= 300:
-                raise HTTPException(422, 'Süre yalnızca oturumu başlatırken 5–300 saniye arasında belirlenebilir.')
+                raise HTTPException(422, 'Süre yalnızca sınavı başlatırken 5–300 saniye arasında belirlenebilir.')
             duration = question_duration_seconds
         count = conn.execute('SELECT COUNT(*) FROM questions WHERE exam_id=?', (session['exam_id'],)).fetchone()[0]
         if action == 'start' and session['phase'] == 'lobby':
@@ -76,7 +76,7 @@ def answer(db, sid, token, question_id, choice):
         session = session_row(conn, sid)
         p = participant_row(conn, sid, token)
         if not p:
-            raise HTTPException(401, 'Bu oturuma katılmalısın.')
+            raise HTTPException(401, 'Bu sınava katılmalısın.')
         q = conn.execute('SELECT * FROM questions WHERE exam_id=? AND position=?',
                          (session['exam_id'], session['question_index'])).fetchone()
         if not q or q['id'] != question_id:
@@ -124,8 +124,6 @@ def state(db, sid, token=None, admin=False):
                 for row in conn.execute('SELECT choice,COUNT(*) AS n FROM answers WHERE session_id=? AND question_id=? GROUP BY choice', (sid, q['id'])):
                     counts[row['choice']] = row['n']
                 result['question']['correct'] = q['correct']
-                result['question']['hint'] = q['hint']
-                result['question']['explanation'] = q['explanation']
                 result['distribution'] = counts
                 result['unanswered'] = len(participants) - sum(counts)
         if s['phase'] == 'finished' and p:
@@ -137,7 +135,7 @@ def history(db, sid):
     with db.connect() as conn:
         s = session_row(conn, sid)
         if s['phase'] != 'finished':
-            raise HTTPException(409, 'Cevap dökümü oturum bitince açılır.')
+            raise HTTPException(409, 'Cevap dökümü sınav bitince açılır.')
         questions = [dict(q) for q in conn.execute('SELECT id,position,text,options,correct FROM questions WHERE exam_id=? ORDER BY position', (s['exam_id'],))]
         for q in questions:
             q['options'] = json.loads(q['options'])
