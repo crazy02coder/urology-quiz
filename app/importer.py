@@ -15,6 +15,8 @@ from defusedxml.common import DefusedXmlException
 from fastapi import HTTPException
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
+# Soru sayısında pratik bir üst sınır; sunum sınavları için serbest bırakıldı.
+MAX_QUESTIONS = 1000
 ALLOWED_EXTENSIONS: frozenset[str] = frozenset({'.docx'})
 
 def load_docx(filename: str, content: bytes):
@@ -121,8 +123,8 @@ def parse_file(filename: str, content: bytes) -> list[dict]:
 
 def validate_questions(questions):
     errors, cleaned = [], []
-    if not isinstance(questions, list) or not 1 <= len(questions) <= 300:
-        raise HTTPException(422, ['Dosyada 1–300 soru bulunmalı.'])
+    if not isinstance(questions, list) or not 1 <= len(questions) <= MAX_QUESTIONS:
+        raise HTTPException(422, [f'Dosyada 1–{MAX_QUESTIONS} soru bulunmalı.'])
     for i, q in enumerate(questions, 1):
         if not isinstance(q, dict):
             errors.append(f'Soru {i}: Geçersiz soru.'); continue

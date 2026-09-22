@@ -7,7 +7,7 @@ import re
 import unicodedata
 from nltk.tokenize import RegexpTokenizer
 from fastapi import HTTPException
-from .importer import load_docx
+from .importer import load_docx, MAX_QUESTIONS
 
 W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 LINES = RegexpTokenizer(r'[^\r\n]+')
@@ -117,8 +117,8 @@ def extract(filename, content):
     def finish():
         if current is None: return
         flush_tail()
-        if len(questions) >= 300:
-            raise HTTPException(422, 'En fazla 300 soru destekleniyor.')
+        if len(questions) >= MAX_QUESTIONS:
+            raise HTTPException(422, f'En fazla {MAX_QUESTIONS} soru destekleniyor.')
         questions.append(current)
 
     def process(line, text):

@@ -1,17 +1,22 @@
-import {$, api, authorize, showError, escape as e, letter, date} from './common.js';
+import {$, api, authorize, showError, escape as e, letter, date, toast, stagger, initTheme} from './common.js';
 let previewId, previewQuestions = [], saving = false;
+const PHASES = {lobby:'Katılım açık', question:'Soru açık', results:'Sonuçlar', finished:'Tamamlandı'};
 const sessionRequests = new Map();
 const deleteDialog = $('#delete-exam-dialog');
-let deletingExam = null;
+let deleting = null;
 function requestId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 async function refresh() {
-  const [exams, status] = await Promise.all([api('/api/admin/exams'),api('/api/admin/imports/status')]);
+  const [exams, sessions, status] = await Promise.all([api('/api/admin/exams'),api('/api/admin/sessions'),api('/api/admin/imports/status')]);
   $('#exam-count').textContent = exams.length;
+  $('#session-count').textContent = sessions.length;
+  $('#sessions').innerHTML = sessions.length ? sessions.map(s => `<article class="card session-row"><a class="session-open" href="/admin/sessions/${e(s.id)}"><div class="grow"><h3>${e(s.title)}</h3><p class="muted">${date(s.created_at)} <span aria-hidden="true">·</span> ${s.participant_count} katılımcı${s.phase==='finished'&&s.finished_at?` <span aria-hidden="true">·</span> ${date(s.finished_at)} tarihinde bitti`:''}</p></div><span class="badge ${s.phase==='finished'?'neutral':''}">${PHASES[s.phase]||s.phase}</span><span class="session-go" aria-hidden="true">→</span></a><button class="delete-session" data-id="${e(s.id)}" data-title="${e(s.title)}" aria-label="${e(s.title)} oturumunun kayıtlarını sil">Sil</button></article>`).join('') : '<div class="empty small-empty">Bir sınavı başlattığınızda oturum ve sonuçları burada birikir.</div>';
+  stagger($('#sessions').children);
   $('#exams').innerHTML = exams.length ? exams.map(exam => `<article class="card exam-row"><div class="exam-icon" aria-hidden="true">≡</div><div class="grow"><h3>${e(exam.title)}</h3><p class="muted">${exam.question_count} soru <span aria-hidden="true">·</span> ${date(exam.created_at)}</p></div><div class="exam-actions"><button class="secondary create-session" data-id="${e(exam.id)}">Sınavı başlat ↗</button><button class="delete-exam" data-id="${e(exam.id)}" data-title="${e(exam.title)}" aria-label="${e(exam.title)} sınavını sil">Sil</button></div></article>`).join('') : '<div class="empty"><span class="empty-icon" aria-hidden="true">≡</span><h3>Henüz kayıtlı sınav yok</h3><p>İlk sınavınızı soru dosyanızdan oluşturun.<br>Kaydetmeden önce tüm soruları kontrol edebilirsiniz.</p></div>';
+  stagger($('#exams').children);
   if (status.enabled) {
     $('#file').disabled = false; $('#file').accept = status.extensions.join(','); $('#preview-button').disabled = false;
     $('#import-note').textContent = `DOCX · Sınav adı ve dosya seçildikten sonra sorular otomatik hazırlanıp kaydedilir.`;
@@ -20,8 +25,8 @@ async function refresh() {
 $('#exams').addEventListener('click', async event => {
   const deleteButton = event.target.closest('.delete-exam');
   if (deleteButton) {
-    deletingExam = {id: deleteButton.dataset.id, title: deleteButton.dataset.title};
-    $('#delete-exam-description').textContent = `“${deletingExam.title}” adlı sınavı silmek istediğinize emin misiniz?`;
+    deleting = {kind: 'exam', id: deleteButton.dataset.id, title: deleteButton.dataset.title};
+    $('#delete-exam-description').textContent = `“${deleting.title}” adlı sınavı, tüm oturum ve cevap kayıtlarıyla birlikte silmek istediğinize emin misiniz?`;
     $('#delete-exam-error').textContent = '';
     deleteDialog.showModal();
     return;
@@ -31,25 +36,36 @@ $('#exams').addEventListener('click', async event => {
   const id = button.dataset.id;
   if (!sessionRequests.has(id)) sessionRequests.set(id, requestId());
   try { const result = await api(`/api/admin/exams/${id}/sessions`, {request_id:sessionRequests.get(id)}); location.href = `/admin/sessions/${result.session_id}`; }
-  catch(error) { showError(error); button.disabled = false; }
+  catch(error) { showError(error); toast(error.message, 'error'); button.disabled = false; }
+});
+$('#sessions').addEventListener('click', event => {
+  const button = event.target.closest('.delete-session'); if (!button) return;
+  deleting = {kind: 'session', id: button.dataset.id, title: button.dataset.title};
+  $('#delete-exam-description').textContent = `“${deleting.title}” oturumunun katılımcı ve cevap kayıtları silinecek. Sınavın kendisi kayıtlı kalır. Onaylıyor musunuz?`;
+  $('#delete-exam-error').textContent = '';
+  deleteDialog.showModal();
 });
 $('#confirm-delete-exam').onclick = async event => {
-  if (!deletingExam) return;
+  if (!deleting) return;
   const button = event.currentTarget;
   button.disabled = true;
   $('#delete-exam-error').textContent = '';
   try {
-    await api(`/api/admin/exams/${deletingExam.id}`, undefined, {method:'DELETE'});
+    // close() olayı `deleting`i sıfırladığı için etiketleri önceden alıyoruz.
+    const {kind, id, title} = deleting;
+    await api(kind === 'exam' ? `/api/admin/exams/${id}` : `/api/admin/sessions/${id}`, undefined, {method:'DELETE'});
     deleteDialog.close();
     await refresh();
+    toast(`“${title}” ${kind === 'session' ? 'oturumu' : 'sınavı'} silindi.`, 'success');
   } catch(error) {
     $('#delete-exam-error').textContent = error.message;
+    toast(error.message, 'error');
   } finally {
     button.disabled = false;
   }
 };
 deleteDialog.addEventListener('close', () => {
-  deletingExam = null;
+  deleting = null;
   $('#delete-exam-error').textContent = '';
 });
 $('#logout').onclick = async () => { try { await api('/api/admin/logout', {}); location.href='/admin'; } catch(error) { showError(error); } };
@@ -74,8 +90,10 @@ $('#upload-form').onsubmit = async event => {
     $('#upload-status').textContent = `“${preview.title}” sınavı hazırlandı ve kaydedildi.`;
     $('#upload-status').hidden = false;
     await refresh();
+    toast(`“${preview.title}” sınavı ${preview.questions?.length ?? ''} soruyla kaydedildi.`.replace('  ', ' '), 'success');
   } catch(error) {
     showError(new Error(`Sınav hazırlanamadı: ${error.message}`));
+    toast(error.message, 'error', 7000);
   } finally {
     saving = false;
     button.disabled = false;
@@ -96,7 +114,7 @@ function field(i, key, label, limit, rows = 2) {
 }
 function renderPreview() {
   invalidateReview();
-  $('#add-question').disabled = previewQuestions.length >= 300;
+  $('#add-question').disabled = previewQuestions.length >= 1000;
   $('#preview').innerHTML = previewQuestions.map((q, i) => `<article class="preview-question" data-question="${i}">
     <div class="section-heading"><h3>Soru ${i+1}</h3><button type="button" class="text-button" data-action="remove-question">Soruyu sil</button></div>
     ${warningList(q.warnings)}
@@ -131,7 +149,7 @@ $('#preview').addEventListener('click', event => {
   renderPreview();
 });
 $('#add-question').onclick = () => {
-  if (saving || previewQuestions.length >= 300) return;
+  if (saving || previewQuestions.length >= 1000) return;
   previewQuestions.push({text:'',options:['',''],correct:null,topic:'',hint:'',explanation:''});
   renderPreview();
   $('#preview').lastElementChild.querySelector('textarea').focus();
@@ -160,4 +178,5 @@ $('#save-exam').onclick = async event => {
     event.target.disabled = !previewId || !$('#review-confirmed').checked;
   }
 };
-try { await authorize(); await refresh(); } catch(error) { showError(error); }
+try { await authorize(); await refresh(); } catch(error) { showError(error); toast(error.message, 'error'); }
+initTheme();

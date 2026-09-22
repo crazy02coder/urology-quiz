@@ -22,6 +22,7 @@ class Login(BaseModel):
 
 class Join(BaseModel):
     nickname: str = Field(max_length=100)
+    experience_years: StrictInt = Field(ge=0, le=game.MAX_EXPERIENCE_YEARS)
 
 class Answer(BaseModel):
     question_id: str = Field(max_length=80)
@@ -34,7 +35,7 @@ class Control(BaseModel):
 
 class Save(BaseModel):
     preview_id: str = Field(max_length=80)
-    questions: list[dict] | None = Field(default=None, max_length=300)
+    questions: list[dict] | None = Field(default=None, max_length=importer.MAX_QUESTIONS)
     review_confirmed: StrictBool = False
 
 class NewSession(BaseModel):
@@ -274,17 +275,36 @@ def create_app(settings=None):
     def history(sid: str):
         return game.history(db, sid)
 
+    @app.get('/api/admin/sessions/{sid}/stats')
+    def stats(sid: str):
+        return game.statistics(db, sid)
+
+    @app.delete('/api/admin/sessions/{sid}')
+    def delete_session(sid: str):
+        with db.transaction() as conn:
+            if not conn.execute('SELECT 1 FROM sessions WHERE id=?', (sid,)).fetchone():
+                raise HTTPException(404, 'Oturum bulunamadı.')
+            conn.execute('DELETE FROM answers WHERE session_id=?', (sid,))
+            conn.execute('DELETE FROM participants WHERE session_id=?', (sid,))
+            conn.execute('DELETE FROM session_requests WHERE session_id=?', (sid,))
+            conn.execute('DELETE FROM sessions WHERE id=?', (sid,))
+        return {'deleted': True}
+
     @app.get('/api/sessions/{sid}')
     def public_state(sid: str, request: Request):
         return game.state(db, sid, request.cookies.get(game.participant_cookie(sid)))
 
     @app.post('/api/sessions/{sid}/join')
     def participant_join(sid: str, data: Join, request: Request):
-        token = game.join(db, sid, data.nickname, request.cookies.get(game.participant_cookie(sid)))
+        token = game.join(db, sid, data.nickname, data.experience_years, request.cookies.get(game.participant_cookie(sid)))
         response = JSONResponse({'joined': True})
         response.set_cookie(game.participant_cookie(sid), token, max_age=7*86400, httponly=True,
                             secure=settings.cookie_secure, samesite='strict', path='/')
         return response
+
+    @app.get('/api/sessions/{sid}/review')
+    def participant_review(sid: str, request: Request):
+        return game.review(db, sid, request.cookies.get(game.participant_cookie(sid)))
 
     @app.post('/api/sessions/{sid}/answers')
     def submit_answer(sid: str, data: Answer, request: Request):
