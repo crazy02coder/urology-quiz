@@ -1,8 +1,9 @@
 """DOCX adapter based on Uroloji_Asistan_Vaka_Sorulari.docx.
 
-Only text is read: no macros, external relationships or embedded instructions run.
+Reads document content without executing macros, links or embedded instructions.
 """
 import io
+import base64
 import json
 import re
 import secrets
@@ -145,7 +146,13 @@ def validate_questions(questions):
             if not isinstance(value,str) or len(value)>5000:
                 errors.append(f'{location}: {field} alanı geçersiz veya çok uzun.');value=''
             metadata[field]=value.strip()
-        cleaned.append({'text': text.strip() if isinstance(text, str) else '',
+        images = q.get('images', [])
+        if not isinstance(images, list) or len(images) > 12 or any(
+            not isinstance(img, dict) or not isinstance(img.get('id'), str) or
+            not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', img['id']) or
+            img.get('placement') not in ('question', 'explanation') for img in images):
+            errors.append(f'{location}: Görsel bilgileri geçersiz.'); images = []
+        cleaned.append({'text': text.strip() if isinstance(text, str) else '', 'images': images,
                         'options': [o.strip() if isinstance(o, str) else '' for o in options], 'correct': correct, **metadata})
     if errors:
         raise HTTPException(422, errors)
@@ -159,7 +166,7 @@ def create_preview(db, admin_hash, title, questions):
     preview_id = secrets.token_urlsafe(24)
     with db.transaction() as conn:
         conn.execute('DELETE FROM previews WHERE expires_at < ?', (time.time(),))
-        conn.execute('INSERT INTO previews VALUES (?,?,?,?,?,NULL)',
+        conn.execute('INSERT INTO previews(id,admin_hash,title,questions,expires_at,exam_id) VALUES (?,?,?,?,?,NULL)',
                      (preview_id, admin_hash, title, json.dumps(cleaned), time.time() + 3600))
     return {'preview_id': preview_id, 'title': title, 'questions': cleaned}
 
@@ -171,9 +178,10 @@ def create_review_preview(db, admin_hash, title, extraction):
     preview_id = secrets.token_urlsafe(24)
     with db.transaction() as conn:
         conn.execute('DELETE FROM previews WHERE expires_at < ?', (time.time(),))
-        conn.execute('INSERT INTO previews VALUES (?,?,?,?,?,NULL)',
+        conn.execute('INSERT INTO previews(id,admin_hash,title,questions,expires_at,exam_id) VALUES (?,?,?,?,?,NULL)',
                      (preview_id, admin_hash, title, json.dumps(draft), time.time() + 3600))
-    return {'preview_id': preview_id, 'title': title, **draft}
+    # Binary assets remain server-side even though the upload flow uses JSON drafts.
+    return {'preview_id': preview_id, 'title': title, **{k:v for k,v in draft.items() if k != 'image_assets'}}
 
 def save_preview(db, admin_hash, preview_id, edited_questions=None, review_confirmed=False):
     with db.transaction() as conn:
@@ -183,15 +191,33 @@ def save_preview(db, admin_hash, preview_id, edited_questions=None, review_confi
         if preview['exam_id']:
             return preview['exam_id']
         stored = json.loads(preview['questions'])
+        assets = stored.get('image_assets', {}) if isinstance(stored, dict) else {}
         if isinstance(stored, dict):
             if not review_confirmed:
                 raise HTTPException(422, 'Soruları, şıkları ve doğru cevapları kontrol ettiğinizi onaylayın.')
             stored = stored['questions']
         questions = validate_questions(edited_questions if edited_questions is not None else stored)
         exam_id = secrets.token_urlsafe(16)
-        conn.execute('INSERT INTO exams VALUES (?,?,?)', (exam_id, preview['title'], time.time()))
+        image_bytes = 0
+        decoded_assets = {}
+        conn.execute('INSERT INTO exams(id,title,created_at) VALUES (?,?,?)', (exam_id, preview['title'], time.time()))
         for i, q in enumerate(questions):
+            question_id = secrets.token_urlsafe(16)
             conn.execute('INSERT INTO questions(id,exam_id,position,text,options,correct,topic,hint,explanation) VALUES (?,?,?,?,?,?,?,?,?)',
-                         (secrets.token_urlsafe(16), exam_id, i, q['text'], json.dumps(q['options']), q['correct'], q['topic'], q['hint'], q['explanation']))
+                         (question_id, exam_id, i, q['text'], json.dumps(q['options']), q['correct'], q['topic'], q['hint'], q['explanation']))
+            for position, ref in enumerate(q['images']):
+                asset = assets.get(ref['id'])
+                if asset is None:
+                    raise HTTPException(422, f'Soru {i+1}: Görsel bulunamadı. Dosyayı yeniden yükleyin.')
+                if ref['id'] not in decoded_assets:
+                    decoded_assets[ref['id']] = base64.b64decode(asset['data'], validate=True)
+                data = decoded_assets[ref['id']]
+                image_bytes += len(data)
+                if image_bytes > 20 * 1024 * 1024:
+                    raise HTTPException(422, 'Tekrarlanan görseller dahil sınavın toplam görsel boyutu 20 MB’ı geçemez.')
+                conn.execute('INSERT INTO question_images(id,question_id,position,placement,mime_type,data) VALUES (?,?,?,?,?,?)',
+                             (secrets.token_urlsafe(24), question_id, position, ref['placement'], asset['mime_type'], data))
+        # The saved exam owns the pictures now; keep only the receipt for retries.
+        conn.execute('UPDATE previews SET questions=? WHERE id=?', (json.dumps(questions), preview_id))
         conn.execute('UPDATE previews SET exam_id=? WHERE id=?', (exam_id, preview_id))
         return exam_id

@@ -26,7 +26,7 @@ $('#exams').addEventListener('click', async event => {
   const deleteButton = event.target.closest('.delete-exam');
   if (deleteButton) {
     deleting = {kind: 'exam', id: deleteButton.dataset.id, title: deleteButton.dataset.title};
-    $('#delete-exam-description').textContent = `“${deleting.title}” adlı sınavı, tüm oturum ve cevap kayıtlarıyla birlikte silmek istediğinize emin misiniz?`;
+    $('#delete-exam-description').textContent = `“${deleting.title}” sınavı listeden kaldırılacak. Daha önce yapılmış oturumlar ve sonuçları “Oturumlar ve geçmiş sonuçlar” bölümünde durmaya devam eder. Onaylıyor musunuz?`;
     $('#delete-exam-error').textContent = '';
     deleteDialog.showModal();
     return;
@@ -53,10 +53,12 @@ $('#confirm-delete-exam').onclick = async event => {
   try {
     // close() olayı `deleting`i sıfırladığı için etiketleri önceden alıyoruz.
     const {kind, id, title} = deleting;
-    await api(kind === 'exam' ? `/api/admin/exams/${id}` : `/api/admin/sessions/${id}`, undefined, {method:'DELETE'});
+    const result = await api(kind === 'exam' ? `/api/admin/exams/${id}` : `/api/admin/sessions/${id}`, undefined, {method:'DELETE'});
     deleteDialog.close();
     await refresh();
-    toast(`“${title}” ${kind === 'session' ? 'oturumu' : 'sınavı'} silindi.`, 'success');
+    toast(kind === 'session' ? `“${title}” oturumu silindi.`
+      : result.archived ? `“${title}” listeden kaldırıldı. ${result.sessions} oturumun sonuçları duruyor.`
+      : `“${title}” sınavı silindi.`, 'success');
   } catch(error) {
     $('#delete-exam-error').textContent = error.message;
     toast(error.message, 'error');

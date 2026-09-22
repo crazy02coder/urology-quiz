@@ -34,7 +34,7 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 ## Kullanım
 
 1. `/admin` üzerinden giriş yapın. Sınav başlığını yazıp DOCX soru dosyasını seçin.
-2. “Önizlemeyi aç” ile soru, şık, doğru cevap, konu, ipucu ve açıklamaları kontrol edip düzenleyin. Eksik cevapları seçin ve kontrol kutusunu işaretleyin. “Sınavı kaydet” veritabanına atomik kayıt yapar; önizleme tek başına sınav oluşturmaz.
+2. Sınavı hazırlama düğmesi dosyayı ayrıştırır ve doğrudan kaydeder; admin önizlemesi açılmaz. Eksik veya çelişkili cevap nedeniyle kayıt reddedilirse Word dosyasını düzeltip yeniden yükleyin.
 3. Kayıtlı sınavdan “Canlı oturum oluştur” seçin. QR kodunu yansıtın; PNG indirme ve bağlantı kopyalama kullanılabilir.
 4. Katılımcılar takma adla katılır. Lobi listesi canlı güncellenir. “Her soru için süre (saniye)” alanına 5–300 arasında bir değer yazın. “Başlat” seçilen süreyi kaydeder ve yeni katılımı kapatır.
 5. Oturumdaki tüm sorular seçtiğiniz süre kadar açık kalır. Oturum başladıktan sonra süre değiştirilemez. Herkes cevap verse bile süre kısalmaz. Katılımcı yalnızca bir cevap verebilir.
@@ -62,11 +62,20 @@ Cevap: B) İkinci seçenek
 Doğru! İsteğe bağlı açıklama.
 ```
 
-Önizlemede soru metni, şıklar, doğru cevap, konu, ipucu ve açıklama düzenlenebilir; soru/şık eklenip silinebilir. Eksik veya çelişkili cevaplar tahmin edilmez. Kaynak metin ve aktarım notları ekranda gösterilir. Soru sınırları bulunamazsa kaynak metinle doldurulacak boş bir soru açılır. Yönetici **“Soruları, şıkları ve doğru cevapları kontrol ettim”** kutusunu işaretlemeden kaydedemez. Alan değişiklikleri bu onayı sıfırlar.
+Dosya yükleme işlemi admin önizlemesi açmadan soruları otomatik kaydeder. Eksik veya çelişkili cevaplar tahmin edilmez; kaydetme kurallarını karşılamayan dosya için hata gösterilir ve Word dosyasının düzeltilmesi gerekir.
 
-Kayıtta 1–300 soru, her soruda 2–5 dolu şık ve tek doğru cevap sunucuda doğrulanır. Soru metni en fazla 3000, şık 1000, konu/ipucu/açıklama alanlarının her biri 5000 karakterdir. Bir hata varsa hiçbir soru kısmen kaydedilmez. Önizleme 1 saat geçerlidir ve oluşturan yönetici oturumuna bağlıdır. **İpucu, açıklama ve doğru cevap, süre dolmadan katılımcı API veya WebSocket mesajına eklenmez.** Tıbbi içerik yorumlanmaz; doğru cevabın içerik açısından kontrolü yöneticidedir.
+### Sorulara görsel ekleme
 
-Yalnızca `.docx`, en fazla **5 MB** dosya ve **250.000 karakter** okunabilir belge metni kabul edilir. Açılmış ZIP toplamı 20 MB, ana XML 8 MB ve numaralandırma XML'i 1 MB ile sınırlıdır. Bozuk/şifreli dosyalar, makrolar, XML DTD/entity ve izlenen değişiklikler reddedilir. Görseller ve metin kutuları okunmaz; ilgili uyarı gösterilir. OCR yoktur. ZIP içeriği diske açılmaz, dış bağlantılar takip edilmez ve dosyalar harici bir hizmete gönderilmez.
+Word içinde `Soru 1` gibi numaralı başlığı ve soru metnini yazın, ardından resmi **şıklar ve ipucu bölümünden önce** ekleyin. PNG, JPG ve WebP resimler ilgili soruya otomatik bağlanır; soru ekranında görünür ve tıklanınca ayrı sekmede büyütülebilir. İpucu, cevap veya açıklama bölümüne eklenen resimler yalnızca sonuçlar açılınca gösterilir. Sonraki soru başlığı yeni soruya geçişi belirler. Ek bir admin önizlemesi veya resim yükleme adımı yoktur.
+
+OCR gerekmez; görsel olduğu gibi gösterilir. Görselin içindeki yazı soru/şık/cevap olarak okunmaz. Tamamen taranmış bir soru yerine soru metni, şıklar ve cevap anahtarını Word'de metin olarak yazın. Resmi numaralı soru başlığından önce koymayın; eşleştirilemeyen veya desteklenmeyen görseller sessizce atılmaz, dosya reddedilir. İnternet bağlantısıyla eklenmiş resimler, Word şekilleri, SVG/EMF ve metin kutuları için PNG/JPG olarak gömülü resim kullanın.
+
+Her soruda en fazla 12 görsel; belgede en fazla 100 farklı görsel desteklenir. Tek görsel 5 MB ve 16 megapikseli, açılmış farklı görseller 15 MB'ı, sorularda tekrarlanan kopyalar dahil kayıt toplamı 20 MB'ı geçemez; DOCX yükleme sınırı yine 5 MB'tır. Resimler SQLite içinde sınavla birlikte tutulur ve mevcut veritabanı yedeklerine dahil olur. Render'da aynı kalıcı veritabanı diski kullanılır; ek hizmet veya AI/OCR ücreti yoktur. Sınav silindiğinde resimleri de silinir. Eski sınavlara görsel eklemek için resimli Word dosyasını yeniden yükleyin.
+
+
+Kayıtta 1–1000 soru, her soruda 2–5 dolu şık ve tek doğru cevap sunucuda doğrulanır. Soru metni en fazla 3000, şık 1000, konu/ipucu/açıklama alanlarının her biri 5000 karakterdir. Bir hata varsa hiçbir soru kısmen kaydedilmez. Önizleme 1 saat geçerlidir ve oluşturan yönetici oturumuna bağlıdır. **İpucu, açıklama ve doğru cevap, süre dolmadan katılımcı API veya WebSocket mesajına eklenmez.** Tıbbi içerik yorumlanmaz; doğru cevabın içerik açısından kontrolü yöneticidedir.
+
+Yalnızca `.docx`, en fazla **5 MB** dosya ve **250.000 karakter** okunabilir belge metni kabul edilir. Açılmış ZIP toplamı 20 MB, ana XML 8 MB ve numaralandırma XML'i 1 MB ile sınırlıdır. Bozuk/şifreli dosyalar, makrolar, XML DTD/entity ve izlenen değişiklikler reddedilir. Gömülü PNG/JPG/WebP görseller aktarılır; metin kutuları ve desteklenmeyen görseller reddedilir. OCR yoktur. ZIP içeriği diske açılmaz, dış bağlantılar takip edilmez ve dosyalar harici bir hizmete gönderilmez.
 
 Sağlanan `Uroloji_Asistan_Vaka_Sorulari.docx` dosyası 10 soru ve her soruda 4 şık içerir. Kaynak cevap anahtarı: **B, C, B, D, A, A, C, D, D, A**. Kaynak dosya değiştirilmemiştir; kopyası `tests/fixtures/uroloji.docx` içindedir.
 
@@ -140,7 +149,7 @@ docker run --rm --name bilkent-exam -p 8000:10000 \
 
 ## Migration, yedekleme ve geri yükleme
 
-`migrations/001_initial.sql`, `002_session_requests.sql`, `003_question_context.sql` ve `004_session_duration.sql` sıralı çalışır. `schema_migrations` tablosu uygulanan dosyaları izler; her dosya ve kayıt makbuzu aynı transaction'da commit edilir. Yeniden başlatma veya deploy mevcut tabloları silmez. Süre migration’ı mevcut oturumları ve cevapları korur, eski oturumlara 45 saniye varsayılanı ekler. Yeni şema değişiklikleri için yeni numaralı dosya ekleyin; uygulanmış migration'ları değiştirmeyin.
+`migrations/001_initial.sql`, `002_session_requests.sql`, `003_question_context.sql` ve `004_session_duration.sql`, `005_participant_experience.sql` ve `006_question_images.sql` sıralı çalışır. Görsel migration’ı mevcut soru ve cevapları değiştirmeden görsel tablosunu ekler. `schema_migrations` tablosu uygulanan dosyaları izler; her dosya ve kayıt makbuzu aynı transaction'da commit edilir. Yeniden başlatma veya deploy mevcut tabloları silmez. Süre migration’ı mevcut oturumları ve cevapları korur, eski oturumlara 45 saniye varsayılanı ekler. Yeni şema değişiklikleri için yeni numaralı dosya ekleyin; uygulanmış migration'ları değiştirmeyin.
 
 Çalışan SQLite'ı düz `cp` ile yedeklemeyin; WAL dosyaları nedeniyle eksik yedek oluşabilir. Dahili komut SQLite backup API'sini kullanır:
 

@@ -167,13 +167,14 @@ def create_app(settings=None):
             if row and row['count'] >= 5:
                 return JSONResponse({'detail': 'Çok fazla hatalı deneme. 15 dakika sonra yeniden deneyin.'}, 429, headers={'Retry-After': str(max(1, int(900 - now + row['window_start'])))})
             if not hmac.compare_digest(data.password.encode(), settings.admin_password.encode()):
-                conn.execute('INSERT INTO login_attempts VALUES (?,1,?) ON CONFLICT(client_key) DO UPDATE SET count=count+1', (client_key, now))
+                conn.execute('INSERT INTO login_attempts(client_key,count,window_start) VALUES (?,1,?)'
+                             ' ON CONFLICT(client_key) DO UPDATE SET count=count+1', (client_key, now))
                 return JSONResponse({'detail': 'Şifre hatalı.'}, 401)
             conn.execute('DELETE FROM login_attempts WHERE client_key=?', (client_key,))
             conn.execute('DELETE FROM admin_sessions WHERE expires_at<=?', (now,))
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             conn.execute('DELETE FROM admin_sessions WHERE token_hash=?', (game.digest(request.cookies.get('admin_session', '')),))
-            conn.execute('INSERT INTO admin_sessions VALUES (?,?,?)', (game.digest(token), csrf, now + 12 * 3600))
+            conn.execute('INSERT INTO admin_sessions(token_hash,csrf,expires_at) VALUES (?,?,?)', (game.digest(token), csrf, now + 12 * 3600))
         response = JSONResponse({'ok': True})
         response.set_cookie('admin_session', token, max_age=43200, httponly=True, secure=settings.cookie_secure, samesite='strict', path='/')
         return response
@@ -193,22 +194,25 @@ def create_app(settings=None):
     @app.get('/api/admin/exams')
     def exams():
         with db.connect() as conn:
-            return [dict(r) for r in conn.execute('SELECT e.*,COUNT(q.id) AS question_count FROM exams e LEFT JOIN questions q ON q.exam_id=e.id GROUP BY e.id ORDER BY e.created_at DESC')]
+            return [dict(r) for r in conn.execute('SELECT e.*,COUNT(q.id) AS question_count FROM exams e'
+                                                 ' LEFT JOIN questions q ON q.exam_id=e.id'
+                                                 ' WHERE e.archived_at IS NULL GROUP BY e.id ORDER BY e.created_at DESC')]
 
     @app.delete('/api/admin/exams/{exam_id}')
     def delete_exam(exam_id: str):
+        """Oturum geçmişi olan sınav arşivlenir; sonuçlar ve kayıtlar korunur."""
         with db.transaction() as conn:
-            exam = conn.execute('SELECT title FROM exams WHERE id=?', (exam_id,)).fetchone()
-            if not exam:
+            exam = conn.execute('SELECT title,archived_at FROM exams WHERE id=?', (exam_id,)).fetchone()
+            if not exam or exam['archived_at'] is not None:
                 raise HTTPException(404, 'Kayıtlı sınav bulunamadı.')
-            conn.execute('DELETE FROM answers WHERE session_id IN (SELECT id FROM sessions WHERE exam_id=?)', (exam_id,))
-            conn.execute('DELETE FROM participants WHERE session_id IN (SELECT id FROM sessions WHERE exam_id=?)', (exam_id,))
-            conn.execute('DELETE FROM session_requests WHERE exam_id=?', (exam_id,))
-            conn.execute('DELETE FROM sessions WHERE exam_id=?', (exam_id,))
+            sessions = conn.execute('SELECT COUNT(*) FROM sessions WHERE exam_id=?', (exam_id,)).fetchone()[0]
+            if sessions:
+                conn.execute('UPDATE exams SET archived_at=? WHERE id=?', (time.time(), exam_id))
+                return {'deleted': True, 'archived': True, 'sessions': sessions}
             conn.execute('DELETE FROM previews WHERE exam_id=?', (exam_id,))
             conn.execute('DELETE FROM questions WHERE exam_id=?', (exam_id,))
             conn.execute('DELETE FROM exams WHERE id=?', (exam_id,))
-        return {'deleted': True}
+        return {'deleted': True, 'archived': False, 'sessions': 0}
 
     @app.get('/api/admin/imports/status')
     def import_status():
@@ -241,7 +245,7 @@ def create_app(settings=None):
             else:
                 sid = secrets.token_urlsafe(24)
                 conn.execute('INSERT INTO sessions(id,exam_id,created_at) VALUES (?,?,?)', (sid, exam_id, time.time()))
-                conn.execute('INSERT INTO session_requests VALUES (?,?,?)', (data.request_id, exam_id, sid))
+                conn.execute('INSERT INTO session_requests(request_id,exam_id,session_id) VALUES (?,?,?)', (data.request_id, exam_id, sid))
         return {'session_id': sid, 'join_url': f'{settings.public_base_url}/join/{sid}'}
 
     @app.get('/api/admin/sessions')
@@ -302,9 +306,29 @@ def create_app(settings=None):
                             secure=settings.cookie_secure, samesite='strict', path='/')
         return response
 
+    @app.get('/api/sessions/{sid}/questions/{index}')
+    def past_question(sid: str, index: int, request: Request):
+        # Yönetici de katılımcı da açılmış soruları geriye dönük inceleyebilir.
+        try:
+            admin_auth(request.cookies)
+            admin = True
+        except HTTPException:
+            admin = False
+        return game.past_question(db, sid, index, request.cookies.get(game.participant_cookie(sid)), admin)
+
     @app.get('/api/sessions/{sid}/review')
     def participant_review(sid: str, request: Request):
         return game.review(db, sid, request.cookies.get(game.participant_cookie(sid)))
+
+    @app.get('/api/sessions/{sid}/images/{image_id}')
+    def question_image(sid: str, image_id: str, request: Request):
+        try:
+            admin_auth(request.cookies)
+            admin = True
+        except HTTPException:
+            admin = False
+        data, mime = game.image_content(db, sid, image_id, request.cookies.get(game.participant_cookie(sid)), admin)
+        return Response(content=data, media_type=mime)
 
     @app.post('/api/sessions/{sid}/answers')
     def submit_answer(sid: str, data: Answer, request: Request):

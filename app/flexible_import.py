@@ -8,6 +8,7 @@ import unicodedata
 from nltk.tokenize import RegexpTokenizer
 from fastapi import HTTPException
 from .importer import load_docx, MAX_QUESTIONS
+from .docx_images import Pictures, selected_children
 
 W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 LINES = RegexpTokenizer(r'[^\r\n]+')
@@ -32,8 +33,9 @@ def document_lines(filename, content):
     if any(body.find('.//' + W + tag) is not None for tag in ('ins', 'del')):
         raise HTTPException(422, 'Word içindeki izlenen değişiklikleri kabul veya reddedip dosyayı yeniden yükleyin.')
     warnings = []
-    if any(body.find('.//' + W + tag) is not None for tag in ('drawing', 'pict', 'object', 'txbxContent')):
-        warnings.append('Görseller ve metin kutuları okunmadı. Gerekli bilgileri önizlemede metin olarak ekleyin; OCR kullanılmıyor.')
+    if any(body.find('.//' + W + tag) is not None for tag in ('object', 'txbxContent')):
+        raise HTTPException(422, 'Metin kutusu veya gömülü nesne var. Metni normal paragrafa, görseli PNG veya JPG resme dönüştürün.')
+    pictures = Pictures(content)
     if body.find('.//' + W + 'tbl') is not None:
         warnings.append('Tablo hücreleri satır sırasıyla okundu. Soru ve şıkların doğru ayrıldığını kontrol edin.')
     formats, definitions, counters, overrides = {}, {}, {}, {}
@@ -54,12 +56,12 @@ def document_lines(filename, content):
                     overrides[(num.get(W+'numId'), level.get(W+'ilvl','0'))] = int(start.get(W+'val','1'))
 
     def text_of(node):
-        if node.tag in {W+t for t in ('drawing','pict','object','txbxContent')}:
-            return ''
+        if node.tag in (W+'drawing', W+'pict'):
+            return ''.join('\n\x00IMAGE:' + image_id + '\x00\n' for image_id in pictures.read(node))
         if node.tag == W+'t': return node.text or ''
         if node.tag in (W+'br', W+'cr'): return '\n'
         if node.tag == W+'tab': return '\t'
-        return ''.join(text_of(child) for child in node)
+        return ''.join(text_of(child) for child in selected_children(node))
 
     def paragraphs(node):
         for child in node:
@@ -90,23 +92,26 @@ def document_lines(filename, content):
             raise HTTPException(422, 'Belge çok uzun. En fazla 250.000 karakterlik bölümler halinde yükleyin.')
         for token in LINES.tokenize(text):
             token = token.strip()
-            if token: records.append((line, token))
+            if token.startswith('\x00IMAGE:') and token.endswith('\x00'):
+                records.append((line, {'image_id': token[7:-1]}))
+            elif token: records.append((line, token))
     if not records:
         raise HTTPException(422, 'Dosyada okunabilir metin bulunamadı. Taranmış görsel yerine metin içeren DOCX yükleyin.')
-    return records, warnings
+    return records, warnings, pictures.assets
 
 def extract(filename, content):
     try:
-        records, warnings = document_lines(filename, content)
+        records, warnings, assets = document_lines(filename, content)
     except (ValueError, OverflowError, RecursionError):
         raise HTTPException(422, 'Word numaralandırması veya belge yapısı okunamadı.')
     questions, pending, current, keys = [], [], None, {}
     in_key = False
-    raw_source = '\n'.join(f'{line}: {text}' for line, text in records)
+    raw_source = '\n'.join(f'{line}: {text if isinstance(text, str) else "[Görsel]"}' for line, text in records)
 
     def new_question(number=None, line=None, parts=None):
         return {'number':number, 'source_line':line, 'parts':parts or [], 'slots':{}, 'letters':[],
-                'answer_text':'', 'tail':[], 'topic':'', 'hint':'', 'explanation':'', 'source':[], 'warnings':[]}
+                'answer_text':'', 'tail':[], 'topic':'', 'hint':'', 'explanation':'', 'source':[], 'warnings':[],
+                'images':[], 'image_placement':'question'}
 
     def flush_tail():
         if current['tail'] and current['slots']:
@@ -152,6 +157,7 @@ def extract(filename, content):
             current['warnings'].append('Yeni soru şıklardan ayrıldı; soru metnini kontrol edin.')
         current['source'].append(text)
         if answer:
+            current['image_placement'] = 'explanation'
             flush_tail()
             value = ANSWER_LETTER.match(answer[1].strip())
             answer_text = ''
@@ -168,6 +174,7 @@ def extract(filename, content):
                 current['answer_text'] = answer_text
             return
         if option:
+            current['image_placement'] = 'question'
             flush_tail()
             label = option[1].upper()
             if label in current['slots']:
@@ -179,8 +186,10 @@ def extract(filename, content):
         hint = re.match(r'^(?:ipucu|hint)\s*:\s*(.*)$', text, re.I)
         explanation = re.match(r'^(?:açıklama|aciklama|explanation)\s*:\s*(.*)$', text, re.I)
         if hint:
+            current['image_placement'] = 'explanation'
             current['hint'] += ('\n' if current['hint'] else '') + hint[1]
         elif explanation:
+            current['image_placement'] = 'explanation'
             current['explanation'] += ('\n' if current['explanation'] else '') + explanation[1]
         elif current['letters'] or current['answer_text']:
             current['explanation'] += ('\n' if current['explanation'] else '') + text
@@ -189,6 +198,13 @@ def extract(filename, content):
         else: current['parts'].append(text)
 
     for line, text in records:
+        if isinstance(text, dict):
+            if current is None or current['number'] is None or in_key:
+                raise HTTPException(422, f'Paragraf {line}: Görsel bir soruyla eşleştirilemedi. Görseli “Soru 1” gibi numaralı başlığın altına yerleştirin.')
+            if len(current['images']) >= 12:
+                raise HTTPException(422, 'Bir soruda en fazla 12 görsel olabilir.')
+            current['images'].append({'id': text['image_id'], 'placement': current['image_placement']})
+            continue
         key_heading = KEY_HEADING.match(text)
         if key_heading:
             in_key = True
@@ -238,7 +254,8 @@ def extract(filename, content):
             q['warnings'].append('2–5 dolu şık olmalı. Eksik veya fazla şıkları düzeltin.')
         result.append({'text':'\n'.join(q['parts']).strip(), 'options':options, 'correct':correct,
                        'topic':q['topic'], 'hint':q['hint'], 'explanation':q['explanation'],
+                       'images':q['images'],
                        'source_line':q['source_line'], 'source_text':'\n'.join(q['source']), 'warnings':q['warnings']})
     unmatched = set(keys) - set(numbers)
     if unmatched: warnings.append('Bazı cevap anahtarı numaraları sorularla eşleştirilemedi: ' + ', '.join(map(str, sorted(unmatched))))
-    return {'questions':result, 'warnings':warnings, 'source_text':raw_source}
+    return {'questions':result, 'warnings':warnings, 'source_text':raw_source, 'image_assets':assets}
