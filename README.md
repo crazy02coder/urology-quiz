@@ -1,4 +1,4 @@
-# Bilkent Şehir Hastanesi canlı eğitim
+# Bilkent Şehir Hastanesi
 
 FastAPI, HTML, CSS ve vanilla JavaScript ile tek yönetici şifreli canlı sınav uygulaması. Katılımcılar yalnızca takma adla katılır. Her soru, yöneticinin lobide seçtiği **5–300 saniye** boyunca açık kalır (varsayılan 45 saniye); sonuçtan sonraki soruya yalnızca yönetici geçer. SQLite kayıtları ve WebSocket bağlantıları yenileme/yeniden bağlanmayı destekler.
 

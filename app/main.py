@@ -83,7 +83,7 @@ def create_app(settings=None):
         with suppress(asyncio.CancelledError):
             await task
 
-    app = FastAPI(title='Bilkent Şehir Hastanesi · Canlı Eğitim', lifespan=lifespan,
+    app = FastAPI(title='Bilkent Şehir Hastanesi · ', lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db, app.state.settings = db, settings
 

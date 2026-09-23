@@ -5,7 +5,7 @@ const sid = location.pathname.split('/').filter(Boolean).at(-1);
 const base = admin ? `/api/admin/sessions/${sid}` : `/api/sessions/${sid}`;
 const stage = $('#stage');
 let durationDraft = null;
-let current, signature='', socket, online=false, retry=0, stopped=false, pending=false, anchor=0, remaining=0, fitFrame;
+let current, signature='', socket, online=false, retry=0, stopped=false, pending=false, anchor=0, remaining=0;
 let detailsState = 'idle', answerToasted = -1;
 let reviewData = null, reviewAnchor = null, reviewBusy = false;
 $('#back').hidden = !admin;
@@ -25,63 +25,20 @@ function updateTimer() {
 setInterval(updateTimer,100);
 initAccordion(stage);
 initTheme();
-function scheduleQuestionFit() {
-  cancelAnimationFrame(fitFrame);
-  fitFrame = requestAnimationFrame(fitProjectorQuestion);
-}
-function fitProjectorQuestion() {
-  if (!['question', 'results'].includes(current?.phase) || document.body.classList.contains('question-has-images')) return;
-  const panel = stage.querySelector('.question-panel');
-  const question = panel?.querySelector('.question-text');
-  const options = panel ? [...panel.querySelectorAll('.option')] : [];
-  if (!panel || !question || !options.length) return;
-  const results = current.phase === 'results';
-  const detailText = panel.querySelectorAll('.explanation p, .result-strip .badge, .exp-strip-label, .exp-pill');
-  // Soru ve şık ölçüsü iki aşamada aynı: şıklar dikey boşluğu doldurmadığı için
-  // küçültme döngüsü artık soru metnini gereksiz yere ezmiyor.
-  let questionSize = Math.min(44, Math.max(23, innerWidth / 44));
-  let optionSize = Math.min(25, Math.max(15, innerWidth / 74));
-  let detailSize = results ? 14 : 15;
-  const applySizes = () => {
-    question.style.fontSize = `${questionSize}px`;
-    options.forEach(option => { option.style.fontSize = `${optionSize}px`; });
-    detailText.forEach(element => { element.style.fontSize = `${detailSize}px`; });
-  };
-  // Chrome, overflow:hidden bir esnek kapsayıcının alt dolgusunu scrollHeight'a
-  // ekliyor; bu yüzden dolgu kadar tolerans olmadan panel hep "taşıyor" görünür
-  // ve küçültme döngüsü soru metnini tabana indirirdi.
-  const padding = element => {
-    const styles = getComputedStyle(element);
-    return parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom) + 2;
-  };
-  const overflows = () => stage.scrollHeight > stage.clientHeight + 2 ||
-    panel.scrollHeight > panel.clientHeight + padding(panel) ||
-    options.some(option => option.scrollHeight > option.clientHeight + 2);
-  applySizes();
-  document.body.classList.remove('stage-tight');
-  // Soru metni okunabilirliğin altına inmesin; önce şık ve detay yazısı küçülür.
-  while (overflows() && (questionSize > 20 || optionSize > 13 || detailSize > 10)) {
-    optionSize = Math.max(13, optionSize - .5);
-    detailSize = Math.max(10, detailSize - .25);
-    if (optionSize <= 16) questionSize = Math.max(20, questionSize - 1);
-    applySizes();
-  }
-  document.body.classList.toggle('stage-tight', overflows());
-}
-window.addEventListener('resize', scheduleQuestionFit);
+// Both phases use the same CSS type scale. Result content must never resize
+// the question or change the title/padding as the timer ends.
 function apply(state) {
   const durationFocused = document.activeElement?.id === 'question-duration';
   if(state.phase !== 'lobby') durationDraft = null;
   document.body.classList.toggle('projector-question', ['question', 'results'].includes(state.phase));
   document.body.classList.toggle('phase-results', state.phase === 'results');
   if (state.phase !== 'finished') detailsState = 'idle';
-  if (!['question', 'results'].includes(state.phase)) document.body.classList.remove('stage-tight');
   current=state; remaining=state.remaining_seconds || 0; anchor=performance.now();
   // Yönetici soruyu ilerletirse inceleme modu kendiliğinden kapanır.
   if(reviewData && (state.question_index!==reviewAnchor || state.phase==='question')) reviewData=null;
   const {server_now, remaining_seconds, answered_count, ...stable} = state;
   const next=JSON.stringify(stable)+(reviewData?`|review${reviewData.question_index}`:'');
-  if (signature!==next) {signature=next; render(); decorate(); scheduleQuestionFit(); if(durationFocused) $('#question-duration')?.focus({preventScroll:true});}
+  if (signature!==next) {signature=next; render(); decorate(); if(durationFocused) $('#question-duration')?.focus({preventScroll:true});}
   updateTimer(); updateMeter();
 }
 async function refresh() {apply(await api(base));}
@@ -113,7 +70,7 @@ window.addEventListener('pageshow',event=>{if(event.persisted) location.reload()
 function title() {return `<div class="session-heading"><div><span class="eyebrow">CANLI EĞİTİM ${!admin&&current.nickname?`· ${e(current.nickname)}`:''}</span><h1>${e(current.title)}</h1></div><span class="badge">${current.participant_count ?? 0} katılımcı</span></div>`;}
 function render() {
   document.body.classList.toggle('question-has-images', Boolean((reviewData || current)?.question?.images?.length));
-  if(reviewData) {stage.innerHTML=title()+resultsPanel(reviewData)+reviewBar(reviewData,true); return;}
+  if(reviewData) {stage.innerHTML=title()+resultsPanel(reviewData,true); return;}
   if(!admin && !current.joined) {
     connection(false,current.phase==='lobby'?'Katılım açık':'Katılım kapalı');
     stage.innerHTML=`<section class="card join-card"><span class="eyebrow">SINAVA KATIL</span><h1>${e(current.title)}</h1>${current.phase==='lobby'?'<p class="muted">Sınav boyunca seni bu adla tanıyacağız.</p><form id="join-form"><label for="nickname">Takma adın</label><input id="nickname" placeholder="Örn. user1" minlength="2" maxlength="30" autocomplete="nickname" required><label for="experience">Kaç yıldır bu alanda çalışıyorsun?</label><input id="experience" type="number" min="0" max="60" step="1" value="0" inputmode="numeric" required aria-describedby="experience-note"><p id="experience-note" class="footnote">Yeni başladıysan <strong>0</strong> yaz. Sonuçlar deneyim yılına göre de karşılaştırılır.</p><button class="primary full">Sınava katıl →</button></form>':'<p>Bu sınav başladı veya tamamlandı. Yeni katılımcı alınmıyor.</p><p class="muted">Daha önce katıldıysan aynı tarayıcı ve cihazdan bağlantıyı aç.</p>'}</section>`;
@@ -122,11 +79,8 @@ function render() {
   if(current.phase==='lobby') {
     stage.innerHTML=title()+(admin?`<div class="lobby-grid"><section class="card qr-card"><span class="eyebrow">KATILMAK İÇİN QR KODU OKUTUN</span><img class="qr" src="${base}/qr.png" alt="Bu canlı sınava katılım QR kodu"><div class="qr-actions"><a class="button secondary" href="${base}/qr.png" download="bilkent-katilim.png">PNG indir ↓</a><button id="copy" class="secondary">Bağlantıyı kopyala</button></div><label class="sr-only" for="join-url">Katılım bağlantısı</label><input id="join-url" class="link-input" value="${e(current.join_url)}" readonly></section><section class="card lobby-people"><div class="section-heading"><h2>Katılımcılar</h2><span class="count">${current.participant_count}</span></div><p class="muted">Herkes katıldığında sınavı başlatın.</p><div class="names">${current.participants.map(person=>`<span class="name-chip">${e(person.nickname)}<small>${person.experience_years} yıl</small></span>`).join('')||'<p class="empty-people">İlk katılımcı bekleniyor…</p>'}</div><div class="lobby-bottom"><label for="question-duration">Her soru için süre (saniye)</label><input id="question-duration" type="number" min="5" max="300" step="1" required value="${e(durationDraft ?? current.question_duration_seconds)}" aria-describedby="duration-note"><p id="duration-note" class="footnote">5–300 saniye. Seçilen süre tüm sorulara uygulanır.<br>Başlattıktan sonra süre değiştirilemez ve yeni katılımcı alınmaz.</p><button class="primary full" data-control="start">Sınavı başlat →</button></div></section></div>`:`<section class="card waiting centered"><span class="waiting-dot" aria-hidden="true"></span><span class="eyebrow">HAZIRSIN, ${e(current.nickname)}</span><h2>Yöneticinin sınavı başlatması<br>bekleniyor</h2><p class="muted">İlk soru başladığında burada görünecek.</p><span class="badge">Süreyi yönetici belirler</span></section>`);
   } else if(current.phase==='question'||current.phase==='results') {
-    if(current.phase==='results') stage.innerHTML=title()+resultsPanel(current)+reviewBar(current,false);
-    else {
-      const q=current.question;
-      stage.innerHTML=title()+`<section class="question-panel active-question-panel"><div class="question-meta"><span class="eyebrow">SORU ${current.question_index+1} / ${current.question_count}</span><div class="timer" role="timer" aria-label="Kalan saniye"><strong id="timer">—</strong><span>saniye</span></div></div>${q.topic?`<p class="topic">${e(q.topic)}</p>`:""}<h2 class="question-text">${e(q.text)}</h2>${questionPictures(q)}<div class="options">${q.options.map((option,i)=>admin?`<div class="option"><span class="letter">${letter(i)}</span><span>${e(option)}</span></div>`:`<button class="option ${current.own_choice===i?'selected':''}" data-choice="${i}" ${current.own_choice!=null?'disabled':''}><span class="letter">${letter(i)}</span><span>${e(option)}</span>${current.own_choice===i?'<span class="selected-mark">✓</span>':''}</button>`).join('')}</div>${answerMeter()}<p class="answer-status" role="status">${!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi, sonuçlar bekleniyor':admin?'Cevaplar alınıyor. Seçilen süre dolunca sonuçlar açılacak.':'Cevabını seç. Kaydettikten sonra değiştiremezsin.'}</p></section>`;
-    }
+    if(current.phase==='results') stage.innerHTML=title()+resultsPanel(current);
+    else stage.innerHTML=title()+livePanel(current)+liveBar();
   } else if(current.phase==='finished') {
     if(admin) {
       stage.innerHTML=title()+`<section class="card completed centered finished-head"><span class="completion-icon" aria-hidden="true">✓</span><span class="eyebrow">SINAV TAMAMLANDI</span><h2>Oturum sonuçları</h2><p class="muted">Aşağıdaki döküm bu oturuma özeldir ve kayıtlıdır; bu bağlantıdan tekrar açabilirsiniz.</p></section><div id="finished-details" class="details-slot"><p class="loading-line">İstatistikler hazırlanıyor…</p></div>`;
@@ -135,6 +89,15 @@ function render() {
     }
     loadFinishedDetails();
   }
+}
+function chart(v=current) {
+  return `<section class="quiz-chart option-chart" aria-label="Şık oranları">
+    <div class="quiz-chart-heading"><div><h3>Şık oranları</h3><p>Tüm katılımcılara göre cevap dağılımı</p></div><span class="badge neutral">${v.unanswered} kişi cevap vermedi</span></div>
+    <div class="option-plot"><div class="option-plot-axis" aria-hidden="true"><span>100%</span><span>50%</span><span>0%</span></div><div class="option-plot-bars">${v.distribution.map((n,i)=>{
+    const right=v.question.correct===i;
+    const percent=Math.round(100*n/(v.participant_count||1));
+    return `<div class="option-plot-column ${right?'is-correct':'is-incorrect'}" aria-label="${letter(i)} şıkkı: ${n} kişi, yüzde ${percent}${right?', doğru cevap':''}"><div class="option-plot-track"><span class="option-plot-fill" data-percent="${percent}"></span></div><strong>${letter(i)}${right?' ✓':''}</strong><span class="option-plot-value">${percent}% <small>· ${n} kişi</small></span></div>`;
+  }).join('')}</div></div></section>`;
 }
 function imageUrl(id) {
   return `/api/sessions/${encodeURIComponent(sid)}/images/${encodeURIComponent(id)}`;
@@ -159,17 +122,50 @@ function bar(percent) {
 function experienceChart(v=current) {
   const groups=v.experience||[];
   if(!groups.length) return '';
-  return `<div class="exp-strip"><span class="exp-strip-label">Deneyim yılına göre</span>${groups.map(g=>`<span class="exp-pill ${perf(g.percent)}" title="${e(g.label)}: ${g.correct}/${g.total} doğru"><b>${e(g.label)}</b><span class="exp-pill-track"><span class="exp-fill" data-percent="${g.percent}"></span></span><i>${g.percent}%</i></span>`).join('')}</div>`;
+  return `<section class="quiz-chart experience-chart" aria-label="Deneyim yılına göre başarı">
+    <div class="quiz-chart-heading"><div><h3>Deneyim yılına göre başarı</h3><p>Her deneyim grubunda doğru cevap verenlerin oranı</p></div><span class="badge neutral">${groups.length} deneyim grubu</span></div>
+    <div class="experience-plot-scale" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></div>
+    <ul class="experience-plot">${groups.map(g=>{
+        const percent=Math.min(100,Math.max(0,Number(g.percent)||0));
+        return `<li class="experience-plot-row ${perf(percent)}"><div class="experience-plot-label"><strong>${e(g.label)}</strong><small>${g.correct} / ${g.total} doğru</small></div><span class="exp-track" aria-hidden="true"><span class="exp-fill" data-percent="${percent}"></span></span><strong class="experience-plot-value">${percent}%</strong></li>`;
+      }).join('')}</ul>
+  </section>`;
 }
-function resultsPanel(v) {
+function livePanel(v) { return questionPanel(v, false); }
+function resultsPanel(v, isReview=false) { return questionPanel(v, true, isReview); }
+function questionPanel(v, revealed, isReview=false) {
   const q=v.question;
-  const base=v.participant_count||1;
-  const share=n=>Math.round(100*n/base);
-  return `<section class="question-panel results-panel"><div class="question-meta"><span class="eyebrow">SORU ${v.question_index+1} / ${v.question_count}</span><span class="badge">${v.answered_count ?? 0} / ${v.participant_count} yanıtladı</span></div>${q.topic?`<p class="topic">${e(q.topic)}</p>`:''}<h2 class="question-text">${e(q.text)}</h2>${questionPictures(q)}<div class="options">${q.options.map((option,i)=>{
-    const n=v.distribution[i], pct=share(n), right=q.correct===i, mine=v.own_choice===i;
-    const note=[right?'✓ Doğru cevap':'', mine?'Senin cevabın':''].filter(Boolean).join(' · ');
-    return `<div class="option result-option ${right?'correct':'incorrect'}${mine?' picked':''}"><span class="opt-fill" data-percent="${pct}"></span><span class="letter">${letter(i)}</span><div class="grow"><span class="opt-text">${e(option)}</span>${note?`<small>${note}</small>`:''}</div><span class="result-count"><strong>${n}</strong><small>${pct}%</small></span></div>`;
-  }).join('')}</div><div class="result-strip"><span class="badge neutral">${v.unanswered} kişi cevap vermedi</span>${experienceChart(v)}</div>${explanation(v)}</section>`;
+  const share=n=>Math.round(100*n/(v.participant_count||1));
+  const status=revealed
+    ? `<span class="badge">${v.answered_count ?? 0} / ${v.participant_count} yanıtladı</span>`
+    : '<div class="timer" role="timer" aria-label="Kalan saniye"><strong id="timer">—</strong><span>saniye</span></div>';
+  const options=q.options.map((option,i)=>{
+    const interactive=!revealed&&!admin;
+    const tag=interactive?'button':'div';
+    const n=revealed?v.distribution[i]:0, pct=share(n);
+    const right=revealed&&q.correct===i, mine=v.own_choice===i;
+    const state=revealed?`result-option ${right?'correct':'incorrect'}${mine?' picked':''}`:mine?'selected':'';
+    const note=revealed?[right?'✓ Doğru cevap':'',mine?'Senin cevabın':''].filter(Boolean).join(' · '):mine?'✓ Cevabın kaydedildi':'';
+    // Empty note/count slots keep option text aligned between the two phases.
+    // Correct answers and result data are rendered only after revelation.
+    return `<${tag} class="option ${state}" ${interactive?`type="button" data-choice="${i}" ${v.own_choice!=null?'disabled':''}`:''}>
+      ${revealed?`<span class="opt-fill" data-percent="${pct}"></span>`:''}
+      <span class="letter">${letter(i)}</span>
+      <div class="grow"><span class="opt-text">${e(option)}</span><small class="option-note" ${note?'':'aria-hidden="true"'}>${note||'&nbsp;'}</small></div>
+      ${revealed?`<span class="result-count"><strong>${n}</strong><small>${pct}%</small></span>`:'<span class="option-count-space" aria-hidden="true"></span>'}
+    </${tag}>`;
+  }).join('');
+  return `<section class="question-panel results-panel quiz-panel${revealed?'':' live-panel'}">
+    <div class="question-meta"><span class="eyebrow">SORU ${v.question_index+1} / ${v.question_count}</span>${status}</div>
+    ${q.topic?`<p class="topic">${e(q.topic)}</p>`:''}
+    <h2 class="question-text">${e(q.text)}</h2>${questionPictures(q)}
+    <div class="options">${options}</div>
+    ${revealed?`${reviewBar(v,isReview)}${explanation(v)}<div class="result-analytics">${chart(v)}${experienceChart(v)}</div>`:''}
+  </section>`;
+}
+function liveBar() {
+  const status=!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi, sonuçlar bekleniyor':admin?'Cevaplar alınıyor. Süre dolunca sonuçlar açılacak.':'Cevabını seç. Kaydettikten sonra değiştiremezsin.';
+  return `<div class="stage-bottom live-bottom">${answerMeter()}<p class="muted answer-status" role="status">${status}</p></div>`;
 }
 function reviewBar(v, isReview) {
   const max=current.revealed_max ?? -1;
@@ -184,12 +180,12 @@ async function openReview(index) {
   try {
     const data=await api(`/api/sessions/${sid}/questions/${index}`);
     reviewData=data; reviewAnchor=current.question_index;
-    signature=''; render(); decorate(); scheduleQuestionFit();
+    signature=''; render(); decorate();
   } catch(error) {toast(error.message,'error');}
   finally {reviewBusy=false;}
 }
 function exitReview() {
-  reviewData=null; signature=''; render(); decorate(); scheduleQuestionFit();
+  reviewData=null; signature=''; render(); decorate();
 }
 function decorate(root=stage) {
   stagger(root.querySelectorAll('.options>.option, .exp-row, .stat-tile, .name-chip, .stat-question, .rev-question'));
@@ -215,7 +211,7 @@ let ex = null;
 const EX_SORTS = {
   people:    [['percent','Başarı'],['correct','Doğru sayısı'],['years','Deneyim yılı'],['nickname','Takma ad']],
   questions: [['position','Soru sırası'],['percent','Başarı'],['correct','Doğru sayısı']],
-  years:     [['years','Deneyim yılı'],['percent','Başarı'],['people','Kişi sayısı']],
+  years:     [['percent','Grup içi başarı'],['correct','Grup içi doğru sayısı']],
 };
 const fold = value => String(value).toLocaleLowerCase('tr');
 function scoreOf(person, questions) {
@@ -298,13 +294,17 @@ function exBodyYears() {
     entry.members.push({person, score:scoreOf(person,questions)});
     map.set(person.experience_years, entry);
   });
-  const rows=exSort([...map.values()].map(entry=>{
-    entry.members.sort((a,b)=>b.score.percent-a.score.percent || a.person.nickname.localeCompare(b.person.nickname,'tr'));
+  // Year groups stay in chronological order; the controls sort their members.
+  const rows=[...map.values()].sort((a,b)=>a.years-b.years).map(entry=>{
+    entry.members=exSort(entry.members.map(member=>({
+      ...member,
+      sort:{percent:member.score.percent, correct:member.score.correct, label:member.person.nickname},
+    })));
     const correct=entry.members.reduce((sum,m)=>sum+m.score.correct,0);
     const total=entry.members.length*questions.length;
     const percent=total?Math.round(100*correct/total):0;
-    return {entry, correct, total, percent, sort:{years:entry.years, percent, people:entry.members.length, label:entry.years}};
-  }));
+    return {entry, correct, total, percent};
+  });
   return `<div class="acc-list">${rows.map(({entry,correct,total,percent},i)=>{
     const chips=`<span class="acc-score"><span class="pill">${entry.members.length} kişi</span><span class="pill pill-ok">${correct}/${total} doğru</span></span>`;
     const ranked=`<ol class="rank-list">${entry.members.map((m,j)=>`<li class="rank-row ${perf(m.score.percent)}"><span class="ans-no">${j+1}</span><span class="grow"><strong>${e(m.person.nickname)}</strong><small>${m.score.correct} doğru · ${m.score.wrong} yanlış · ${m.score.blank} boş</small></span>${bar(m.score.percent)}<span class="ans-pct"><strong>${m.score.percent}%</strong></span></li>`).join('')}</ol>`;
@@ -313,7 +313,7 @@ function exBodyYears() {
       const pct=entry.members.length?Math.round(100*hit/entry.members.length):0;
       return `<li class="ans ${perf(pct)}"><span class="ans-no">${q.position+1}</span><div class="grow"><p class="ans-q">${e(q.text)}</p><span class="exp-track ans-bar"><span class="exp-fill" data-percent="${pct}"></span></span></div><span class="ans-pct"><strong>${pct}%</strong><small>${hit}/${entry.members.length}</small></span></li>`;
     }).join('')}</ul>`;
-    return accordion(`ex-y${i}`,`${entry.years} yıl deneyim`,'En iyiden en kötüye sıralı',chips,percent,`<div class="q-detail"><h4 class="sub-heading">Sıralama</h4>${ranked}${perQuestion}</div>`);
+    return accordion(`ex-y${i}`,`${entry.years} yıl deneyim`,'',chips,percent,`<div class="q-detail"><h4 class="sub-heading">Sıralama</h4>${ranked}${perQuestion}</div>`);
   }).join('')}</div>`;
 }
 function explorerShell(data) {

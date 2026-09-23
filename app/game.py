@@ -158,9 +158,7 @@ def question_groups(conn, sid, q):
 
 def past_question(db, sid, index, token=None, admin=False):
     """Sonuçları açılmış bir soruyu salt okunur gösterir; oturum durumu değişmez."""
-    with db.transaction() as conn:
-        now = time.time()
-        expire(conn, sid, now)
+    with db.connect() as conn:
         s = session_row(conn, sid)
         p = participant_row(conn, sid, token)
         if not admin and not p:
@@ -198,9 +196,11 @@ def past_question(db, sid, index, token=None, admin=False):
                 'nickname': p['nickname'] if p else None}
 
 def state(db, sid, token=None, admin=False):
-    with db.transaction() as conn:
+    # Salt okuma: WAL sayesinde tüm istemciler paralel okur. Süresi dolmuş soruyu
+    # arka plan görevi (200 ms) ve advance() kapatır; cevap kabulü deadline'ı ayrıca
+    # kendi yazma işleminde doğrular. Burada yazma kilidi almak 50 kişide sıraya sokuyordu.
+    with db.connect() as conn:
         now = time.time()
-        expire(conn, sid, now)
         s = session_row(conn, sid)
         p = participant_row(conn, sid, token)
         if not admin and not p:
