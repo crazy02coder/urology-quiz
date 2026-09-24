@@ -12,18 +12,25 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt -c constraints.txt
 test -f .env || cp .env.example .env
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+python -m uvicorn main:app  --workers 1
 ```
 
 Yönetici ekranı: **http://localhost:8000/admin** veya **http://127.0.0.1:8000/admin**. Yerel HTTP kullanımında bu iki adres aynı port için kabul edilir. Başlangıç şifresi `Bilkent.yeni123`; yalnızca sunucunun `.env` dosyasındaki `ADMIN_PASSWORD` değerinden okunur. Frontend içinde şifre bulunmaz. `.env` sürüm kontrolüne ve Docker imajına dahil edilmez.
 
-Daha sonraki açılışlarda:
+### Her açılışta bunu kullanın (403 hatasını önler)
 
 ```bash
-cd /projenin/bulundugu/klasor
-source .venv/bin/activate
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+cd /Users/admin/Desktop/Project/urology-quiz
+pkill -f "uvicorn main:app"
+IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+sed -i '' "s|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=http://$IP:8000|" .env
+echo "Yönetici ekranı: http://$IP:8000/admin"
+.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
+
+Komut sırasıyla eski sunucuyu kapatır, bilgisayarın o anki ağ IP'sini bulur, `.env` içindeki `PUBLIC_BASE_URL` değerini bu IP ile günceller ve sunucuyu başlatır. Yönetici ekranını **ekrana yazılan adresle** açın.
+
+**403 "İstek kaynağı doğrulanamadı" neden olur?** Güvenlik gereği sunucu yalnızca `PUBLIC_BASE_URL` adresinden gelen giriş ve işlemleri kabul eder. Wi-Fi değişince (hastane ağı, ev, telefon hotspot'u) bilgisayarın IP'si değişir; `.env` eski IP'de kalırsa girişte 403 alırsınız ve QR yanlış adresi gösterir. Yukarıdaki komut IP'yi her seferinde yeniden yazdığı için bu sorun olmaz. Ağ değiştirdiyseniz sunucuyu bu komutla yeniden başlatın.
 
 Sunucuyu `Ctrl+C` ile durdurun. Klasör adı önemli değildir; komutları `main.py` ve `requirements.txt` bulunan proje kökünde çalıştırın. Yerel veritabanı yolu proje köküne göre çözülür. `.venv` klasörünü başka makineye taşımayın; yeni konumda sanal ortamı yeniden oluşturun. Tek worker kullanın.
 

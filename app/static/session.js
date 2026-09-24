@@ -25,8 +25,49 @@ function updateTimer() {
 setInterval(updateTimer,100);
 initAccordion(stage);
 initTheme();
-// Both phases use the same CSS type scale. Result content must never resize
-// the question or change the title/padding as the timer ends.
+// Fit only the reading area; charts never force question text to shrink.
+// The CSS scale is an upper bound and readable minimum sizes are preserved.
+let quizFitFrame=0;
+function scheduleQuizFit() {
+  cancelAnimationFrame(quizFitFrame);
+  quizFitFrame=requestAnimationFrame(fitQuizCore);
+}
+function fitQuizCore() {
+  const core=stage.querySelector('.quiz-core');
+  if(!core || !document.body.classList.contains('projector-question')) return;
+  core.style.setProperty('--quiz-scale','1');
+  core.classList.remove('quiz-compact');
+  const height=window.visualViewport?.height || window.innerHeight;
+  const liveFooter=stage.querySelector('.live-bottom');
+  const footerSpace=liveFooter?liveFooter.offsetHeight+8:0;
+  const available=height-(core.getBoundingClientRect().top+window.scrollY)-footerSpace-16;
+  if(available<=0 || core.offsetHeight<=available) return;
+  core.classList.add('quiz-compact');
+  if(core.offsetHeight<=available) return;
+  const mobile=window.matchMedia('(max-width:650px)').matches;
+  const limits=[['.question-text',mobile?15:20],['.opt-text',mobile?14:16],['.explanation p',mobile?12:13]];
+  let lower=Math.min(1,...limits.map(([selector,min])=>{
+    const element=core.querySelector(selector);
+    return element?min/parseFloat(getComputedStyle(element).fontSize):1;
+  }));
+  let upper=1;
+  core.style.setProperty('--quiz-scale',String(lower));
+  // Unusually long content remains accessible in normal page flow.
+  if(core.offsetHeight>available) return;
+  for(let step=0;step<7;step++) {
+    const scale=(lower+upper)/2;
+    core.style.setProperty('--quiz-scale',String(scale));
+    if(core.offsetHeight<=available) lower=scale;
+    else upper=scale;
+  }
+  core.style.setProperty('--quiz-scale',String(Math.floor(lower*1000)/1000));
+}
+window.addEventListener('resize',scheduleQuizFit);
+window.visualViewport?.addEventListener('resize',scheduleQuizFit);
+document.fonts?.ready.then(scheduleQuizFit);
+stage.addEventListener('load',event=>{
+  if(event.target.matches('.question-image img')) scheduleQuizFit();
+},true);
 function apply(state) {
   const durationFocused = document.activeElement?.id === 'question-duration';
   if(state.phase !== 'lobby') durationDraft = null;
@@ -156,11 +197,14 @@ function questionPanel(v, revealed, isReview=false) {
     </${tag}>`;
   }).join('');
   return `<section class="question-panel results-panel quiz-panel${revealed?'':' live-panel'}">
+    <div class="quiz-core">
     <div class="question-meta"><span class="eyebrow">SORU ${v.question_index+1} / ${v.question_count}</span>${status}</div>
     ${q.topic?`<p class="topic">${e(q.topic)}</p>`:''}
     <h2 class="question-text">${e(q.text)}</h2>${questionPictures(q)}
     <div class="options">${options}</div>
-    ${revealed?`${reviewBar(v,isReview)}${explanation(v)}<div class="result-analytics">${chart(v)}${experienceChart(v)}</div>`:''}
+    ${revealed?`${reviewBar(v,isReview)}${explanation(v)}`:''}
+    </div>
+    ${revealed?`<div class="result-analytics">${chart(v)}${experienceChart(v)}</div>`:''}
   </section>`;
 }
 function liveBar() {
@@ -172,7 +216,7 @@ function reviewBar(v, isReview) {
   const index=v.question_index;
   const back=index>0, forward=index<max;
   const advance=!isReview&&admin&&current.phase==='results';
-  return `<div class="stage-bottom"><div class="review-nav">${isReview?`<span class="review-flag">İnceleme · Soru ${index+1} / ${v.question_count}</span>`:''}<button type="button" class="secondary" data-review="${index-1}" ${back?'':'disabled'}>← Önceki soru</button>${isReview?`<button type="button" class="secondary" data-review="${index+1}" ${forward?'':'disabled'}>Sonraki soru →</button><button type="button" class="secondary" data-review="live">Canlıya dön ↺</button>`:''}</div><p class="muted">${isReview?'Bu soru salt okunur — cevaplar kapalı.':admin?'Sonuçları değerlendirin; hazır olduğunuzda devam edin.':'Yöneticinin devam etmesi bekleniyor.'}</p>${advance?`<button class="primary" data-control="${current.question_index+1===current.question_count?'finish':'next'}">${current.question_index+1===current.question_count?'Sınavı bitir':'Sonraki soru →'}</button>`:''}</div>`;
+  return `<div class="stage-bottom review-controls${admin?' is-admin':''}"><div class="review-nav">${isReview?`<span class="review-flag">İnceleme · Soru ${index+1} / ${v.question_count}</span>`:''}<button type="button" class="secondary" data-review="${index-1}" ${back?'':'disabled'}>← Önceki soru</button>${isReview?`<button type="button" class="secondary" data-review="${index+1}" ${forward?'':'disabled'}>Sonraki soru →</button><button type="button" class="secondary" data-review="live">Canlıya dön ↺</button>`:''}</div><p class="muted">${isReview?'Bu soru salt okunur — cevaplar kapalı.':admin?'Sonuçları değerlendirin; hazır olduğunuzda devam edin.':'Yöneticinin devam etmesi bekleniyor.'}</p>${advance?`<button class="primary" data-control="${current.question_index+1===current.question_count?'finish':'next'}">${current.question_index+1===current.question_count?'Sınavı bitir':'Sonraki soru →'}</button>`:''}</div>`;
 }
 async function openReview(index) {
   if(reviewBusy) return;
@@ -191,6 +235,7 @@ function decorate(root=stage) {
   stagger(root.querySelectorAll('.options>.option, .exp-row, .stat-tile, .name-chip, .stat-question, .rev-question'));
   root.querySelectorAll('[data-count]').forEach(element=>countUp(element,Number(element.dataset.count),{suffix:element.dataset.suffix||''}));
   growBars(root);
+  scheduleQuizFit();
 }
 function perf(percent) {
   return percent>=60?'perf-high':percent>=30?'perf-mid':'perf-low';
