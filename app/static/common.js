@@ -35,7 +35,8 @@ export const date = timestamp => new Date(timestamp * 1000).toLocaleString('tr-T
    Aynı metin üst üste gelirse yinelenmez, sayaç artar. */
 const TOAST_ICONS = {success:'✓', error:'!', warn:'⚠', info:'i'};
 let toastStack;
-export function toast(message, kind = 'info', timeout = 4600) {
+// options.title: kalın başlık · options.brand: kurum logosu ve geri sayım çubuğu
+export function toast(message, kind = 'info', timeout = 4600, options = {}) {
   const text = String(message ?? '').trim();
   if (!text) return;
   if (!toastStack) {
@@ -55,16 +56,33 @@ export function toast(message, kind = 'info', timeout = 4600) {
     return;
   }
   const item = document.createElement('div');
-  item.className = `toast toast-${kind}`;
+  item.className = `toast toast-${kind}${options.brand ? ' toast-brand' : ''}`;
   item.dataset.text = text;
   item.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-  const icon = document.createElement('span');
-  icon.className = 'toast-icon';
+  let icon;
+  if (options.brand) {
+    icon = document.createElement('img');
+    icon.className = 'toast-logo';
+    icon.src = '/static/img/saglik-bakanligi.png';
+    icon.alt = '';
+  } else {
+    icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.textContent = TOAST_ICONS[kind] || TOAST_ICONS.info;
+  }
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = TOAST_ICONS[kind] || TOAST_ICONS.info;
-  const body = document.createElement('p');
-  body.className = 'toast-text';
-  body.textContent = text;
+  const message_ = document.createElement('p');
+  message_.className = 'toast-text';
+  message_.textContent = text;
+  let body = message_;
+  if (options.title) {
+    body = document.createElement('div');
+    body.className = 'toast-body';
+    const heading = document.createElement('strong');
+    heading.className = 'toast-title';
+    heading.textContent = options.title;
+    body.append(heading, message_);
+  }
   const repeat = document.createElement('span');
   repeat.className = 'toast-repeat';
   repeat.hidden = true;
@@ -74,6 +92,13 @@ export function toast(message, kind = 'info', timeout = 4600) {
   close.setAttribute('aria-label', 'Bildirimi kapat');
   close.textContent = '×';
   item.append(icon, body, repeat, close);
+  if (options.brand && timeout) {
+    const progress = document.createElement('span');
+    progress.className = 'toast-progress';
+    progress.setAttribute('aria-hidden', 'true');
+    progress.style.setProperty('--duration', `${timeout}ms`);
+    item.append(progress);
+  }
   toastStack.appendChild(item);
   const remove = () => {
     if (!item.isConnected) return;

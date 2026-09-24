@@ -1,13 +1,11 @@
 import asyncio
 import hmac
-import io
 import secrets
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import unquote
 
-import qrcode
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +13,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .config import ROOT, Settings
 from .db import Database
-from . import game, importer, flexible_import
+from . import accounts, game, importer, flexible_import, qr_card
 
 class Login(BaseModel):
     password: str = Field(max_length=500)
@@ -37,6 +35,10 @@ class Save(BaseModel):
     preview_id: str = Field(max_length=80)
     questions: list[dict] | None = Field(default=None, max_length=importer.MAX_QUESTIONS)
     review_confirmed: StrictBool = False
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=500)
+    new_password: str = Field(max_length=500)
 
 class NewSession(BaseModel):
     request_id: str = Field(min_length=16, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
@@ -154,7 +156,9 @@ def create_app(settings=None):
     @app.get('/join/{sid}')
     def join_page(sid: str):
         with db.connect() as conn:
-            game.session_row(conn, sid)
+            exists = conn.execute('SELECT 1 FROM sessions WHERE id=?', (sid,)).fetchone()
+        if not exists:
+            return FileResponse(ROOT / 'app/templates/invalid.html', status_code=404)
         return html('session.html')
 
     @app.post('/api/login')
@@ -166,7 +170,7 @@ def create_app(settings=None):
             row = conn.execute('SELECT * FROM login_attempts WHERE client_key=?', (client_key,)).fetchone()
             if row and row['count'] >= 5:
                 return JSONResponse({'detail': 'Çok fazla hatalı deneme. 15 dakika sonra yeniden deneyin.'}, 429, headers={'Retry-After': str(max(1, int(900 - now + row['window_start'])))})
-            if not hmac.compare_digest(data.password.encode(), settings.admin_password.encode()):
+            if not accounts.verify(conn, settings, data.password):
                 conn.execute('INSERT INTO login_attempts(client_key,count,window_start) VALUES (?,1,?)'
                              ' ON CONFLICT(client_key) DO UPDATE SET count=count+1', (client_key, now))
                 return JSONResponse({'detail': 'Şifre hatalı.'}, 401)
@@ -178,6 +182,26 @@ def create_app(settings=None):
         response = JSONResponse({'ok': True})
         response.set_cookie('admin_session', token, max_age=43200, httponly=True, secure=settings.cookie_secure, samesite='strict', path='/')
         return response
+
+    @app.get('/api/admin/account')
+    def account():
+        with db.connect() as conn:
+            return {'username': accounts.username(conn)}
+
+    @app.post('/api/admin/password')
+    def change_password(data: PasswordChange, request: Request):
+        problems = accounts.password_problems(data.new_password)
+        if problems:
+            raise HTTPException(422, problems)
+        with db.transaction() as conn:
+            if not accounts.verify(conn, settings, data.current_password):
+                raise HTTPException(403, 'Mevcut şifre hatalı.')
+            if accounts.verify(conn, settings, data.new_password):
+                raise HTTPException(422, 'Yeni şifre mevcut şifreyle aynı olamaz.')
+            accounts.set_password(conn, data.new_password)
+            # Şifre değişince diğer cihazlardaki yönetici oturumları kapanır.
+            conn.execute('DELETE FROM admin_sessions WHERE token_hash<>?', (request.state.admin['token_hash'],))
+        return {'ok': True}
 
     @app.get('/api/admin/me')
     def me(request: Request):
@@ -263,12 +287,8 @@ def create_app(settings=None):
     def qr(sid: str):
         with db.connect() as conn:
             game.session_row(conn, sid)
-        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=12, border=4)
-        qr.add_data(f'{settings.public_base_url}/join/{sid}')
-        qr.make(fit=True)
-        buffer = io.BytesIO()
-        qr.make_image(fill_color='black', back_color='white').save(buffer, format='PNG')
-        return Response(buffer.getvalue(), media_type='image/png', headers={'Content-Disposition': f'inline; filename="bilkent-{sid}.png"'})
+        image = qr_card.render(f'{settings.public_base_url}/join/{sid}')
+        return Response(image, media_type='image/png', headers={'Content-Disposition': f'inline; filename="bilkent-{sid}.png"'})
 
     @app.post('/api/admin/sessions/{sid}/control')
     def control(sid: str, data: Control):

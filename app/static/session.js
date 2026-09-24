@@ -26,25 +26,83 @@ setInterval(updateTimer,100);
 initAccordion(stage);
 initTheme();
 // Fit only the reading area; charts never force question text to shrink.
-// The CSS scale is an upper bound and readable minimum sizes are preserved.
+// Live questions may grow a little into spare space; results keep their compact scale.
 let quizFitFrame=0;
 function scheduleQuizFit() {
   cancelAnimationFrame(quizFitFrame);
   quizFitFrame=requestAnimationFrame(fitQuizCore);
 }
+function prepareQuizImages(core, available, mobile) {
+  const galleries=[...core.querySelectorAll('.question-images')];
+  if(!galleries.length) return null;
+  let rows=0;
+  galleries.forEach(gallery=>{
+    const count=gallery.querySelectorAll('.question-image').length;
+    const columns=Math.min(count,mobile?3:4,Math.max(1,Math.floor(gallery.clientWidth/(mobile?100:160))));
+    gallery.style.setProperty('--quiz-image-columns',String(columns));
+    rows+=Math.ceil(count/columns);
+  });
+  // Both question and explanation galleries share the image budget.
+  // Caption lines, row gaps and gallery margins are included in it.
+  const spacing=rows*18+(rows-galleries.length)*6+galleries.length*12;
+  const min=mobile?44:64;
+  const max=Math.max(min,Math.min(mobile?150:220,Math.floor((available*.3-spacing)/rows)));
+  core.style.setProperty('--quiz-image-height',`${max}px`);
+  return {min,max};
+}
+function shrinkQuizImages(core, sizes, available) {
+  if(!sizes || core.offsetHeight<=available) return;
+  let lower=sizes.min, upper=sizes.max;
+  core.style.setProperty('--quiz-image-height',`${lower}px`);
+  if(core.offsetHeight>available) return;
+  for(let step=0;step<7;step++) {
+    const size=(lower+upper)/2;
+    core.style.setProperty('--quiz-image-height',`${size}px`);
+    if(core.offsetHeight<=available) lower=size;
+    else upper=size;
+  }
+  core.style.setProperty('--quiz-image-height',`${Math.floor(lower)}px`);
+}
 function fitQuizCore() {
   const core=stage.querySelector('.quiz-core');
   if(!core || !document.body.classList.contains('projector-question')) return;
   core.style.setProperty('--quiz-scale','1');
+  core.style.removeProperty('--quiz-live-height');
+  core.style.removeProperty('--quiz-image-height');
   core.classList.remove('quiz-compact');
+  const livePanel=core.closest('.live-panel');
   const height=window.visualViewport?.height || window.innerHeight;
   const liveFooter=stage.querySelector('.live-bottom');
   const footerSpace=liveFooter?liveFooter.offsetHeight+8:0;
-  const available=height-(core.getBoundingClientRect().top+window.scrollY)-footerSpace-16;
+  const bottomSpace=livePanel
+    ? parseFloat(getComputedStyle(livePanel).paddingBottom)+parseFloat(getComputedStyle($('#session-main')).paddingBottom)+10
+    : 16;
+  const available=height-(core.getBoundingClientRect().top+window.scrollY)-footerSpace-bottomSpace;
+  const mobile=window.matchMedia('(max-width:650px)').matches;
+  const imageSizes=prepareQuizImages(core,Math.max(0,available),mobile);
+  if(livePanel && available>0 && core.offsetHeight<=available) {
+    let lower=1, upper=mobile?1.15:1.18;
+    core.style.setProperty('--quiz-scale',String(upper));
+    if(core.offsetHeight<=available) lower=upper;
+    else {
+      for(let step=0;step<7;step++) {
+        const scale=(lower+upper)/2;
+        core.style.setProperty('--quiz-scale',String(scale));
+        if(core.offsetHeight<=available) lower=scale;
+        else upper=scale;
+      }
+    }
+    core.style.setProperty('--quiz-scale',String(Math.floor(lower*1000)/1000));
+    core.style.setProperty('--quiz-live-height',`${Math.floor(available)}px`);
+    return;
+  }
   if(available<=0 || core.offsetHeight<=available) return;
   core.classList.add('quiz-compact');
-  if(core.offsetHeight<=available) return;
-  const mobile=window.matchMedia('(max-width:650px)').matches;
+  shrinkQuizImages(core,imageSizes,available);
+  if(core.offsetHeight<=available) {
+    if(livePanel) core.style.setProperty('--quiz-live-height',`${Math.floor(available)}px`);
+    return;
+  }
   const limits=[['.question-text',mobile?15:20],['.opt-text',mobile?14:16],['.explanation p',mobile?12:13]];
   let lower=Math.min(1,...limits.map(([selector,min])=>{
     const element=core.querySelector(selector);
@@ -61,6 +119,7 @@ function fitQuizCore() {
     else upper=scale;
   }
   core.style.setProperty('--quiz-scale',String(Math.floor(lower*1000)/1000));
+  if(livePanel) core.style.setProperty('--quiz-live-height',`${Math.floor(available)}px`);
 }
 window.addEventListener('resize',scheduleQuizFit);
 window.visualViewport?.addEventListener('resize',scheduleQuizFit);
@@ -112,6 +171,11 @@ function title() {return `<div class="session-heading"><div><span class="eyebrow
 function render() {
   document.body.classList.toggle('question-has-images', Boolean((reviewData || current)?.question?.images?.length));
   if(reviewData) {stage.innerHTML=title()+resultsPanel(reviewData,true); return;}
+  if(!admin && !current.joined && current.phase==='finished') {
+    connection(false,'Bağlantının süresi doldu');
+    stage.innerHTML=`<section class="card link-state-card"><div class="logo-orbit" aria-hidden="true"><span class="logo-ring"></span><img class="logo-spin" src="/static/img/saglik-bakanligi.png" alt=""></div><span class="eyebrow">BAĞLANTININ SÜRESİ DOLDU</span><h1>Bu eğitim sona erdi</h1><p class="muted">Okuttuğunuz QR kodu tamamlanmış bir eğitime ait; yeni katılım alınmıyor.</p><p class="link-state-hint"><strong>Aktif eğitim bağlantısına bağlanmayı deneyin.</strong> Eğitmeninizin ekranındaki güncel QR kodunu yeniden okutun.</p></section>`;
+    return;
+  }
   if(!admin && !current.joined) {
     connection(false,current.phase==='lobby'?'Katılım açık':'Katılım kapalı');
     stage.innerHTML=`<section class="card join-card"><span class="eyebrow">SINAVA KATIL</span><h1>${e(current.title)}</h1>${current.phase==='lobby'?'<p class="muted">Sınav boyunca seni bu adla tanıyacağız.</p><form id="join-form"><label for="nickname">Takma adın</label><input id="nickname" placeholder="Örn. user1" minlength="2" maxlength="30" autocomplete="nickname" required><label for="experience">Kaç yıldır bu alanda çalışıyorsun?</label><input id="experience" type="number" min="0" max="60" step="1" value="0" inputmode="numeric" required aria-describedby="experience-note"><p id="experience-note" class="footnote">Yeni başladıysan <strong>0</strong> yaz. Sonuçlar deneyim yılına göre de karşılaştırılır.</p><button class="primary full">Sınava katıl →</button></form>':'<p>Bu sınav başladı veya tamamlandı. Yeni katılımcı alınmıyor.</p><p class="muted">Daha önce katıldıysan aynı tarayıcı ve cihazdan bağlantıyı aç.</p>'}</section>`;
@@ -149,7 +213,7 @@ function questionPictures(q, placement='question') {
   const label=placement==='explanation'?'Açıklama görseli':'Soru görseli';
   return `<div class="question-images">${images.map((image,i)=>{
     const url=imageUrl(image.id);
-    return `<figure class="question-image"><a href="${url}" target="_blank" rel="noopener noreferrer"><img src="${url}" alt="${label} ${i+1}" loading="lazy"></a><figcaption>Büyütmek için görsele dokunun</figcaption></figure>`;
+    return `<figure class="question-image"><a href="${url}" target="_blank" rel="noopener noreferrer" aria-label="${label} ${i+1} · Tam boy aç" title="Görseli tam boy aç"><img src="${url}" alt="${label} ${i+1}" loading="lazy"></a><figcaption>Büyüt ↗</figcaption></figure>`;
   }).join('')}</div>`;
 }
 function explanation(v=current) {
@@ -456,6 +520,7 @@ async function loadFinishedDetails() {
 stage.addEventListener('error', event => {
   if (!event.target.matches('.question-image img')) return;
   event.target.alt = 'Görsel yüklenemedi; büyüt bağlantısıyla yeniden açın.';
+  scheduleQuizFit();
 }, true);
 stage.addEventListener('submit',async event=>{
   if(event.target.id!=='join-form') return;

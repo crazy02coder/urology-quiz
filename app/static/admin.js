@@ -182,3 +182,76 @@ $('#save-exam').onclick = async event => {
 };
 try { await authorize(); await refresh(); } catch(error) { showError(error); toast(error.message, 'error'); }
 initTheme();
+
+/* --- Hesap ayarları ---------------------------------------------------------
+   Kurallar sunucudaki accounts.RULES ile aynıdır; sunucu yine de ayrıca doğrular. */
+const settingsDialog = $('#settings-dialog');
+const PASSWORD_RULES = {
+  length: value => value.length >= 8,
+  upper: value => /\p{Lu}/u.test(value),
+  lower: value => /\p{Ll}/u.test(value),
+  digit: value => /\p{Nd}/u.test(value),
+  special: value => /[^\p{L}\p{N}\s]/u.test(value),
+};
+const STRENGTH = ['Şifre girin', 'Çok zayıf', 'Zayıf', 'Orta', 'İyi', 'Güçlü', 'Çok güçlü'];
+let changingPassword = false;
+function checkPassword() {
+  const value = $('#new-password').value, repeat = $('#confirm-password').value;
+  const state = Object.fromEntries(Object.entries(PASSWORD_RULES).map(([key, test]) => [key, test(value)]));
+  state.match = value.length > 0 && value === repeat;
+  let met = 0;
+  document.querySelectorAll('#password-rules [data-rule]').forEach(item => {
+    const ok = Boolean(state[item.dataset.rule]);
+    if (ok) met++;
+    if (item.classList.contains('is-met') === ok) return;
+    item.classList.toggle('is-met', ok);
+    item.querySelector('.rule-state').textContent = ok ? 'karşılandı' : 'karşılanmadı';
+  });
+  const strength = $('.strength');
+  const level = value ? Math.max(1, met) : 0;
+  strength.dataset.level = String(Math.min(4, Math.ceil(level * 4 / 6)));
+  strength.querySelector('.strength-fill').style.setProperty('--fill', `${Math.round(met / 6 * 100)}%`);
+  strength.querySelector('.strength-text').textContent = STRENGTH[level];
+  $('#save-password').disabled = changingPassword || met < 6 || !$('#current-password').value;
+}
+async function openSettings() {
+  $('#settings-form').reset();
+  $('#settings-error').textContent = '';
+  document.querySelectorAll('#settings-form input[type=password], #settings-form input[data-was-password]')
+    .forEach(input => { input.type = 'password'; });
+  checkPassword();
+  settingsDialog.showModal();
+  $('#current-password').focus();
+  try { $('#account-username').value = (await api('/api/admin/account')).username; }
+  catch (error) { toast(error.message, 'error'); }
+}
+$('#open-settings').onclick = openSettings;
+$('#close-settings').onclick = $('#cancel-settings').onclick = () => settingsDialog.close();
+settingsDialog.addEventListener('click', event => { if (event.target === settingsDialog) settingsDialog.close(); });
+$('#settings-form').addEventListener('input', event => {
+  if (event.target.id === 'show-passwords') return;
+  $('#settings-error').textContent = '';
+  checkPassword();
+});
+$('#show-passwords').onchange = event => {
+  ['current-password', 'new-password', 'confirm-password'].forEach(id => { $(`#${id}`).type = event.target.checked ? 'text' : 'password'; });
+};
+$('#settings-form').onsubmit = async event => {
+  event.preventDefault();
+  checkPassword();
+  if ($('#save-password').disabled) return;
+  changingPassword = true; checkPassword();
+  const button = $('#save-password'); const label = button.textContent;
+  button.textContent = 'Güncelleniyor…';
+  try {
+    await api('/api/admin/password', {current_password: $('#current-password').value, new_password: $('#new-password').value});
+    settingsDialog.close();
+    toast('Şifreniz güncellendi. Diğer cihazlardaki yönetici oturumları kapatıldı.', 'success', 6000, {title: 'Hesap ayarları'});
+  } catch (error) {
+    $('#settings-error').textContent = error.message;
+    toast(error.message, 'error');
+    if (error.status === 403) { $('#current-password').select(); }
+  } finally {
+    changingPassword = false; button.textContent = label; checkPassword();
+  }
+};

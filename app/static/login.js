@@ -1,4 +1,6 @@
 import {$, api, showError, toast, initTheme} from './common.js';
+import {playSplash} from './splash.js';
+playSplash();
 const password = $('#password');
 const toggle = $('#toggle-password');
 toggle.onclick = () => {
