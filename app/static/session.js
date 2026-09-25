@@ -19,7 +19,7 @@ function updateTimer() {
   const seconds = Math.max(0, Math.ceil(remaining - (performance.now()-anchor)/1000));
   const timer = $('#timer');
   if(timer) {timer.textContent=seconds; timer.closest('.timer').classList.toggle('urgent',seconds<=10);}
-  document.querySelectorAll('[data-choice]').forEach(button => { button.disabled = !online || pending || seconds===0 || current?.own_choice != null; });
+  document.querySelectorAll('[data-choice]').forEach(button => { button.disabled = !online || pending || seconds===0; });
   document.querySelectorAll('[data-control]').forEach(button => {button.disabled = !online || pending;});
 }
 setInterval(updateTimer,100);
@@ -250,10 +250,10 @@ function questionPanel(v, revealed, isReview=false) {
     const n=revealed?v.distribution[i]:0, pct=share(n);
     const right=revealed&&q.correct===i, mine=v.own_choice===i;
     const state=revealed?`result-option ${right?'correct':'incorrect'}${mine?' picked':''}`:mine?'selected':'';
-    const note=revealed?[right?'✓ Doğru cevap':'',mine?'Senin cevabın':''].filter(Boolean).join(' · '):mine?'✓ Cevabın kaydedildi':'';
+    const note=revealed?[right?'✓ Doğru cevap':'',mine?'Senin cevabın':''].filter(Boolean).join(' · '):mine?'✓ Seçimin · süre bitene kadar değiştirebilirsin':'';
     // Empty note/count slots keep option text aligned between the two phases.
     // Correct answers and result data are rendered only after revelation.
-    return `<${tag} class="option ${state}" ${interactive?`type="button" data-choice="${i}" ${v.own_choice!=null?'disabled':''}`:''}>
+    return `<${tag} class="option ${state}" ${interactive?`type="button" data-choice="${i}"`:''}>
       ${revealed?`<span class="opt-fill" data-percent="${pct}"></span>`:''}
       <span class="letter">${letter(i)}</span>
       <div class="grow"><span class="opt-text">${e(option)}</span><small class="option-note" ${note?'':'aria-hidden="true"'}>${note||'&nbsp;'}</small></div>
@@ -272,7 +272,7 @@ function questionPanel(v, revealed, isReview=false) {
   </section>`;
 }
 function liveBar() {
-  const status=!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi, sonuçlar bekleniyor':admin?'Cevaplar alınıyor. Süre dolunca sonuçlar açılacak.':'Cevabını seç. Kaydettikten sonra değiştiremezsin.';
+  const status=!admin&&current.own_choice!=null?'✓ Cevabın kaydedildi. Süre bitene kadar değiştirebilirsin.':admin?'Cevaplar alınıyor. Süre dolunca sonuçlar açılacak.':'Cevabını seç. Süre bitene kadar değiştirebilirsin.';
   return `<div class="stage-bottom live-bottom">${answerMeter()}<p class="muted answer-status" role="status">${status}</p></div>`;
 }
 function reviewBar(v, isReview) {
@@ -552,8 +552,9 @@ stage.addEventListener('click',async event=>{
     pending=true; updateTimer(); showError(null);
     try {
       if(answerButton) {
-        await api(`${base}/answers`,{question_id:current.question.id,choice:Number(answerButton.dataset.choice)});
-        if(answerToasted!==current.question_index) {answerToasted=current.question_index; toast('Cevabın kaydedildi. Sonuçlar süre bitince açılacak.','success');}
+        const result=await api(`${base}/answers`,{question_id:current.question.id,choice:Number(answerButton.dataset.choice)});
+        if(result.changed) toast('Cevabın güncellendi.','success',2200);
+        else if(answerToasted!==current.question_index) {answerToasted=current.question_index; toast('Cevabın kaydedildi. Süre bitene kadar değiştirebilirsin.','success');}
       }
       else await api(`${base}/control`,{action:controlButton.dataset.control,expected_version:current.version,...(duration!==undefined?{question_duration_seconds:duration}:{})});
       await refresh();

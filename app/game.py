@@ -134,13 +134,13 @@ def answer(db, sid, token, question_id, choice):
         if type(choice) is not int or not 0 <= choice < len(json.loads(q['options'])):
             raise HTTPException(422, 'Geçerli bir şık seç.')
         previous = conn.execute('SELECT choice FROM answers WHERE participant_id=? AND question_id=?', (p['id'], question_id)).fetchone()
-        if previous:
-            if previous['choice'] == choice:
-                return {'saved': True}
-            raise HTTPException(409, 'Cevabın zaten kaydedildi ve değiştirilemez.')
-        conn.execute('INSERT INTO answers(participant_id,session_id,question_id,choice,answered_at) VALUES (?,?,?,?,?)',
+        if previous and previous['choice'] == choice:
+            return {'saved': True, 'changed': False}
+        # Süre dolana kadar cevap değiştirilebilir; kişi başı tek satır kalır (birincil anahtar).
+        conn.execute('INSERT INTO answers(participant_id,session_id,question_id,choice,answered_at) VALUES (?,?,?,?,?)'
+                     ' ON CONFLICT(participant_id,question_id) DO UPDATE SET choice=excluded.choice, answered_at=excluded.answered_at',
                      (p['id'], sid, question_id, choice, now))
-        return {'saved': True}
+        return {'saved': True, 'changed': previous is not None}
 
 def question_groups(conn, sid, q):
     """Bir sorunun deneyim yılına göre doğru/yanlış kovaları."""
