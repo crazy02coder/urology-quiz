@@ -13,29 +13,23 @@ TEAL = (7, 110, 104)
 TEAL_SOFT = (234, 243, 243)
 INK = (16, 46, 58)
 MUTED = (83, 102, 117)
-FONTS = (
-    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
-    '/Library/Fonts/Arial Bold.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
-    '/System/Library/Fonts/Helvetica.ttc',
-)
+# Font projeyle birlikte gelir: Render/Linux'ta sistem fontu yok ve Pillow'un
+# yedek fontunda Ş, Ğ, İ, ı gibi Türkçe harfler kutu olarak çıkıyordu.
+FONTS = {'bold': ROOT / 'app/fonts/NotoSans-Bold.ttf', 'semibold': ROOT / 'app/fonts/NotoSans-SemiBold.ttf'}
 
-@lru_cache(maxsize=8)
-def font(size):
-    for path in FONTS:
-        try:
-            return ImageFont.truetype(path, size)
-        except OSError:
-            continue
-    return ImageFont.load_default(size=size)
+@lru_cache(maxsize=16)
+def font(size, weight='bold'):
+    try:
+        return ImageFont.truetype(str(FONTS[weight]), size)
+    except OSError:
+        return ImageFont.load_default(size=size)
 
 @lru_cache(maxsize=1)
 def logo_image():
     return Image.open(LOGO).convert('RGBA')
 
-def centered(draw, y, text, size, fill, width):
-    face = font(size)
+def centered(draw, y, text, size, fill, width, weight='bold'):
+    face = font(size, weight)
     draw.text(((width - draw.textlength(text, font=face)) / 2, y), text, font=face, fill=fill)
 
 def render(url):
@@ -64,9 +58,9 @@ def render(url):
     draw.rounded_rectangle((margin - 10, margin + header - 10, margin + side + 9, margin + header + side + 9),
                            radius=24, fill=TEAL_SOFT)
     centered(draw, margin, 'Bilkent Şehir Hastanesi', 48, INK, width)
-    centered(draw, margin + 66, 'PERSONEL EĞİTİMLERİ · CANLI SINAV', 22, TEAL, width)
+    centered(draw, margin + 66, 'PERSONEL EĞİTİMLERİ · CANLI SINAV', 22, TEAL, width, 'semibold')
     card.alpha_composite(image, (margin, margin + header))
-    centered(draw, margin + header + side + 30, 'Katılmak için kamerayla okutun', 26, MUTED, width)
+    centered(draw, margin + header + side + 30, 'Katılmak için kamerayla okutun', 26, MUTED, width, 'semibold')
 
     buffer = io.BytesIO()
     card.convert('RGB').save(buffer, format='PNG', optimize=True)
