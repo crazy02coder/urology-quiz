@@ -1,4 +1,4 @@
-# Windows'ta: proje köküne cloudflared.exe koyun, sonra `pyinstaller --noconfirm BilkentSinav.spec`
+# Windows'ta: proje köküne cloudflared.exe koyun, sonra `pyinstaller --noconfirm BilkentSinav.spec` → dist\Bilkent Sınav.exe
 from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(
@@ -8,6 +8,7 @@ a = Analysis(
         ('app/static', 'app/static'),
         ('app/fonts', 'app/fonts'),
         ('migrations', 'migrations'),
+        ('.env.example', '.'),
     ],
     binaries=[('cloudflared.exe', '.')],
     # Uvicorn döngü/protokol modüllerini isimle yüklediği için otomatik bulunmazlar.
@@ -20,7 +21,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='BilkentSinav',
+    name='Bilkent Sınav',
     icon='BilkentSinav.ico',
     console=True,
     upx=False,

@@ -40,26 +40,26 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 
 ## Windows exe (Render'sız)
 
-`BilkentSinav.exe` çift tıklanınca sunucuyu bilgisayarda açar, Cloudflare'ın ücretsiz tüneliyle herkese açık bir `https://….trycloudflare.com` adresi alır ve yönetici panelini tarayıcıda bu adresle açar. Katılımcıların aynı ağda olması gerekmez; mobil veriyle de katılabilirler. Hesap, port yönlendirme veya `.env` gerekmez.
+`Bilkent Sınav.exe` çift tıklanınca sunucuyu bilgisayarda açar, Cloudflare'ın ücretsiz tüneliyle herkese açık bir `https://….trycloudflare.com` adresi alır ve yönetici panelini tarayıcıda bu adresle açar. Katılımcıların aynı ağda olması gerekmez; mobil veriyle de katılabilirler. Hesap, port yönlendirme veya `.env` gerekmez.
 
 **Exe'yi derleme (Windows'ta, bir kez):** Python 3.11 veya daha yeni bir sürüm kurulu olmalı. Proje klasöründe PowerShell açın:
 
 ```powershell
 git pull
-py -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m pip install pyinstaller
 curl.exe -L -o cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
 .venv\Scripts\pyinstaller --noconfirm BilkentSinav.spec
 ```
 
-Exe `dist\BilkentSinav.exe` olarak çıkar. Kod değişince `git pull` ve son satırı tekrar çalıştırmak yeterlidir.
+Exe `dist\Bilkent Sınav.exe` olarak çıkar. Derlemeyi mutlaka `.venv` içindeki `pyinstaller` ile yapın; bağımlılıkları kurulu olmayan bir Python ile derlenen exe açılır açılmaz kapanır. Kod değişince `git pull` ve son satırı tekrar çalıştırmak yeterlidir.
 
 **Kullanım:**
 
 1. Exe'yi kendine ait bir klasöre koyun (örneğin `Masaüstü\BilkentSinav`). Veritabanı bu klasördeki `data\exam.db` dosyasında tutulur; yedek almak için bu klasörü kopyalamak yeterlidir. Render'daki veriyi taşımak isterseniz oradaki `exam.db` dosyasını buraya koyun.
 2. Çift tıklayın. Windows "bilgisayarınızı korudu" derse **Ek bilgi → Yine de çalıştır**.
-3. İlk açılışta konsol yönetici şifresini sorar (kullanıcı adı `admin`). Şifre veritabanına özet olarak kaydedilir, sonraki açılışlarda sorulmaz.
+3. Konsol şifre sormaz; yönetici paneli kendi şifresiyle açılır (varsayılan `Bilkent.yeni123`, ya da panelde Ayarlar'dan değiştirdiğiniz şifre). Varsayılanı değiştirmek için exe'nin yanına `ADMIN_PASSWORD=...` satırı olan bir `.env` koyabilirsiniz.
 4. Konsolda adres yazılır ve yönetici paneli tarayıcıda açılır. QR'ı panelden alın.
 5. Konsol penceresi açık kaldığı sürece sınav yayındadır; pencereyi kapatınca sunucu ve tünel kapanır. Exe çalışırken Windows uyku moduna geçmez.
 

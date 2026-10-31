@@ -1,11 +1,9 @@
 """Windows başlatıcı: sunucuyu açar, Cloudflare hızlı tüneliyle herkese açık HTTPS adresi alır.
 
-Tek exe olarak paketlenir (BilkentSinav.spec, .github/workflows/windows-exe.yml).
+Tek exe olarak paketlenir (BilkentSinav.spec → dist/Bilkent Sınav.exe).
 Veritabanı exe'nin yanındaki data/ klasöründe durur. Geliştirmede: python desktop.py
 """
-import getpass
 import re
-import secrets
 import shutil
 import socket
 import subprocess
@@ -17,18 +15,12 @@ import webbrowser
 from contextlib import suppress
 from pathlib import Path
 
-import uvicorn
-
-from app import accounts
-from app.config import Settings
-from app.db import Database
-from app.main import create_app
-
 FROZEN = getattr(sys, 'frozen', False)
 BUNDLE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 HOME = Path(sys.executable).resolve().parent if FROZEN else BUNDLE
 DATA = HOME / 'data'
 TUNNEL_URL = re.compile(r'https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com')
+TITLE = 'Bilkent Sınav'
 
 class Tunnel:
     """Hesap gerektirmez; her açılışta yeni bir trycloudflare.com adresi verir."""
@@ -89,23 +81,14 @@ def free_port(preferred=8000):
             except OSError:
                 continue
 
-def ensure_password(db):
-    with db.connect() as conn:
-        if accounts.credentials(conn):
-            return
-    print('İlk kurulum: yönetici şifresini belirleyin (kullanıcı adı: admin).')
-    while True:
-        password = getpass.getpass('Yeni şifre: ')
-        if problems := accounts.password_problems(password):
-            print('\n'.join(f'  - {problem}' for problem in problems))
-            continue
-        if getpass.getpass('Şifre tekrar: ') != password:
-            print('  - Şifreler aynı değil.')
-            continue
-        break
-    with db.transaction() as conn:
-        accounts.set_password(conn, password)
-    print('Şifre kaydedildi. Sonradan yönetici panelindeki Ayarlar’dan değiştirebilirsiniz.\n')
+def admin_password():
+    # Panelin kendi şifresi: exe yanındaki .env, yoksa projenin varsayılanı (.env.example).
+    # Panelde Ayarlar'dan değiştirilen şifre veritabanında tutulur ve bunun yerine geçer.
+    from dotenv import dotenv_values
+    for path in (HOME / '.env', BUNDLE / '.env.example'):
+        if password := dotenv_values(path).get('ADMIN_PASSWORD'):
+            return password
+    raise RuntimeError('ADMIN_PASSWORD bulunamadı.')
 
 def keep_awake():
     # Sınav sürerken Windows uyku moduna geçmesin.
@@ -132,20 +115,33 @@ def announce(server, tunnel, url):
           '  Bu pencere açık kaldığı sürece sınav yayında.\n'
           '  Kapatınca sınav durur. Adres her açılışta değişir;\n'
           '  QR kodu yönetici panelinden alın.\n'
-          f'{line}\n')
+          f'{line}\n', flush=True)
     webbrowser.open(f'{url}/admin')
 
+def prepare_console():
+    # Çıktı dosyaya/boruya yönlenince Windows cp1254 kullanır; Türkçe ve çerçeve karakterleri çökmesin.
+    for stream in (sys.stdout, sys.stderr):
+        if stream and not stream.isatty():
+            stream.reconfigure(encoding='utf-8', errors='replace')
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(TITLE)
+
 def main():
+    # Uygulama içe aktarmaları burada: eksik modül olursa pencere anında kapanmasın, hata görünsün.
+    import uvicorn
+    from app.config import Settings
+    from app.db import Database
+    from app.main import create_app
+
     DATA.mkdir(exist_ok=True)
     database = DATA / 'exam.db'
     db = Database(database)
     db.migrate()
-    ensure_password(db)
     port = free_port()
-    print('Cloudflare bağlantısı hazırlanıyor...')
+    print('Cloudflare bağlantısı hazırlanıyor...', flush=True)
     tunnel = open_tunnel(port)
-    # Şifre veritabanındaki özetten doğrulanır; buradaki değer hiçbir zaman kullanılmaz.
-    settings = Settings(secrets.token_urlsafe(32), tunnel.url, f'sqlite:///{database.as_posix()}', True)
+    settings = Settings(admin_password(), tunnel.url, f'sqlite:///{database.as_posix()}', True)
     server = uvicorn.Server(uvicorn.Config(create_app(settings), host='127.0.0.1', port=port, workers=1,
                                            proxy_headers=True, forwarded_allow_ips='127.0.0.1', log_level='warning'))
     threading.Thread(target=announce, args=(server, tunnel, tunnel.url), daemon=True).start()
@@ -156,6 +152,7 @@ def main():
         tunnel.stop()
 
 if __name__ == '__main__':
+    prepare_console()
     try:
         main()
     except KeyboardInterrupt:
