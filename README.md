@@ -42,13 +42,13 @@ Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` de
 
 `BilkentSinav.exe` çift tıklanınca sunucuyu bilgisayarda açar, Cloudflare'ın ücretsiz tüneliyle herkese açık bir `https://….trycloudflare.com` adresi alır ve yönetici panelini tarayıcıda bu adresle açar. Katılımcıların aynı ağda olması gerekmez; mobil veriyle de katılabilirler. Hesap, port yönlendirme veya `.env` gerekmez.
 
-**Exe'yi derleme (Windows'ta, bir kez):** Python 3.11 kurulu olmalı. Proje klasöründe PowerShell açın:
+**Exe'yi derleme (Windows'ta, bir kez):** Python 3.11 veya daha yeni bir sürüm kurulu olmalı. Proje klasöründe PowerShell açın:
 
 ```powershell
 git pull
-py -3.11 -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt -c constraints.txt
-.venv\Scripts\python -m pip install "pyinstaller>=6.16,<7"
+py -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install pyinstaller
 curl.exe -L -o cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
 .venv\Scripts\pyinstaller --noconfirm BilkentSinav.spec
 ```
