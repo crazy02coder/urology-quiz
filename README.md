@@ -38,6 +38,40 @@ Sunucuyu `Ctrl+C` ile durdurun. Klasör adı önemli değildir; komutları `main
 
 Telefon ve bilgisayar aynı ağda olmalı. `.env` içindeki `PUBLIC_BASE_URL` değerini bilgisayarınızın yerel IP adresine değiştirin; örneğin `http://192.168.1.25:8000`. `COOKIE_SECURE=false` yerel HTTP denemesi içindir. Sunucuyu yeniden başlatın ve **admin ekranını da aynı IP adresiyle açın**. QR bu adresi içerir. Yerel IP ve portun telefonlardan erişilebilir olması gerekir. `localhost` QR kodu başka telefondan bilgisayara bağlanamaz.
 
+## Windows exe (Render'sız)
+
+`BilkentSinav.exe` çift tıklanınca sunucuyu bilgisayarda açar, Cloudflare'ın ücretsiz tüneliyle herkese açık bir `https://….trycloudflare.com` adresi alır ve yönetici panelini tarayıcıda bu adresle açar. Katılımcıların aynı ağda olması gerekmez; mobil veriyle de katılabilirler. Hesap, port yönlendirme veya `.env` gerekmez.
+
+**Exe'yi derleme (Windows'ta, bir kez):** Python 3.11 kurulu olmalı. Proje klasöründe PowerShell açın:
+
+```powershell
+git pull
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt -c constraints.txt
+.venv\Scripts\python -m pip install "pyinstaller>=6.16,<7"
+curl.exe -L -o cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+.venv\Scripts\pyinstaller --noconfirm BilkentSinav.spec
+```
+
+Exe `dist\BilkentSinav.exe` olarak çıkar. Kod değişince `git pull` ve son satırı tekrar çalıştırmak yeterlidir.
+
+**Kullanım:**
+
+1. Exe'yi kendine ait bir klasöre koyun (örneğin `Masaüstü\BilkentSinav`). Veritabanı bu klasördeki `data\exam.db` dosyasında tutulur; yedek almak için bu klasörü kopyalamak yeterlidir. Render'daki veriyi taşımak isterseniz oradaki `exam.db` dosyasını buraya koyun.
+2. Çift tıklayın. Windows "bilgisayarınızı korudu" derse **Ek bilgi → Yine de çalıştır**.
+3. İlk açılışta konsol yönetici şifresini sorar (kullanıcı adı `admin`). Şifre veritabanına özet olarak kaydedilir, sonraki açılışlarda sorulmaz.
+4. Konsolda adres yazılır ve yönetici paneli tarayıcıda açılır. QR'ı panelden alın.
+5. Konsol penceresi açık kaldığı sürece sınav yayındadır; pencereyi kapatınca sunucu ve tünel kapanır. Exe çalışırken Windows uyku moduna geçmez.
+
+**Bilinmesi gerekenler:**
+
+- Adres her açılışta değişir. Bir önceki açılışın QR'ı geçersiz olur; sınav öncesi QR'ı yeniden alın.
+- Tüm trafik bilgisayarın internet bağlantısından geçer. Kablolu bağlantı önerilir; resimli sorularda yükleme (upload) hızı belirleyicidir.
+- Tünel çıkışta 7844 portunu kullanır. Kurum ağı engellerse konsolda "Cloudflare bağlantısı kurulamadı" yazar; ayrıntı `data\tunnel.log` dosyasındadır. Bu durumda telefon hotspot'u ile deneyin.
+- 30–40 kişilik sınav için sıradan bir dizüstü yeterlidir.
+
+**Mac'te geliştirme:** `brew install cloudflared`, ardından `.venv/bin/python desktop.py`.
+
 ## Kullanım
 
 1. `/admin` üzerinden giriş yapın. Sınav başlığını yazıp DOCX soru dosyasını seçin.

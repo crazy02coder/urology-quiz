@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 test-results/
 *.db*
+build/
+dist/
+cloudflared.exe
