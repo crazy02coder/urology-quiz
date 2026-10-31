@@ -21,7 +21,7 @@ exe = EXE(
     a.datas,
     [],
     name='BilkentSinav',
-    icon='app/static/img/saglik-bakanligi.png',
+    icon='BilkentSinav.ico',
     console=True,
     upx=False,
 )
