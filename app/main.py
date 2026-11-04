@@ -4,7 +4,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .config import ROOT, Settings
 from .db import Database
-from . import accounts, game, importer, flexible_import, qr_card
+from . import accounts, exports, game, importer, flexible_import, qr_card
 
 class Login(BaseModel):
     password: str = Field(max_length=500)
@@ -302,6 +302,22 @@ def create_app(settings=None):
     @app.get('/api/admin/sessions/{sid}/stats')
     def stats(sid: str):
         return game.statistics(db, sid)
+
+    def attachment(content, name, media_type):
+        name = ''.join('_' if c in '\\/:*?"<>|' or ord(c) < 32 else c for c in name)
+        fallback = name.encode('ascii', 'ignore').decode() or 'indirme'
+        return Response(content, media_type=media_type, headers={
+            'Content-Disposition': f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quote(name)}'})
+
+    @app.get('/api/admin/sessions/{sid}/export.xlsx')
+    def export_excel(sid: str):
+        data = game.history(db, sid)
+        return attachment(exports.session_workbook(data), f"{data['title']} - Sonuçlar.xlsx", exports.XLSX_TYPE)
+
+    @app.get('/api/admin/sessions/{sid}/participants/{participant_id}/export.pdf')
+    def export_participant(sid: str, participant_id: str):
+        data = game.participant_export(db, sid, participant_id)
+        return attachment(exports.participant_pdf(data), f"{data['participant']['nickname']} - {data['title']}.pdf", exports.PDF_TYPE)
 
     @app.delete('/api/admin/sessions/{sid}')
     def delete_session(sid: str):

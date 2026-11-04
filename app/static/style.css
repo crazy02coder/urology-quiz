@@ -886,3 +886,8 @@ html.splash-open,html.splash-open body{overflow:hidden}
 @keyframes ecg-draw{to{stroke-dashoffset:0}}
 @keyframes ecg-comet{to{stroke-dashoffset:-1}}
 @keyframes splash-rise{from{opacity:0;transform:translateY(14px);letter-spacing:.02em}to{opacity:1;transform:none}}
+
+/* v10: dışa aktarma */
+.ex-heading-side{display:inline-flex;align-items:center;gap:10px}
+.ex-export{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 13px;font-size:13px}
+.ans-tools{display:flex;justify-content:flex-end;margin-bottom:10px}

@@ -268,9 +268,26 @@ def history(db, sid):
         rows = []
         for p in conn.execute('SELECT id,nickname,experience_years FROM participants WHERE session_id=? ORDER BY created_at', (sid,)):
             answers = {a['question_id']: a['choice'] for a in conn.execute('SELECT question_id,choice FROM answers WHERE participant_id=? AND session_id=?', (p['id'], sid))}
-            rows.append({'nickname': p['nickname'], 'experience_years': p['experience_years'],
+            rows.append({'id': p['id'], 'nickname': p['nickname'], 'experience_years': p['experience_years'],
                          'experience_group': group_label(p['experience_years']), 'answers': answers})
-        return {'title': s['title'], 'questions': questions, 'participants': rows}
+        return {'title': s['title'], 'created_at': s['created_at'], 'finished_at': s['finished_at'],
+                'questions': questions, 'participants': rows}
+
+def participant_export(db, sid, participant_id):
+    """Yönetici için tek kişinin cevap dökümü: PDF'e girecek sorular ve görseller."""
+    with db.connect() as conn:
+        s = finished_session(conn, sid, 'Cevap dökümü sınav bitince açılır.')
+        p = conn.execute('SELECT id,nickname,experience_years FROM participants WHERE id=? AND session_id=?', (participant_id, sid)).fetchone()
+        if not p:
+            raise HTTPException(404, 'Katılımcı bulunamadı.')
+        answers = {a['question_id']: a['choice'] for a in conn.execute(
+            'SELECT question_id,choice FROM answers WHERE participant_id=? AND session_id=?', (p['id'], sid))}
+        questions = exam_questions(conn, s['exam_id'])
+        for q in questions:
+            q['own_choice'] = answers.get(q['id'])
+            q['pictures'] = [row['data'] for row in conn.execute(
+                "SELECT data FROM question_images WHERE question_id=? AND placement='question' ORDER BY position", (q['id'],))]
+        return {'title': s['title'], 'finished_at': s['finished_at'], 'participant': dict(p), 'questions': questions}
 
 def statistics(db, sid):
     """Bitmiş bir oturumun tam dökümü: soru başına, deneyim grubu başına ve kişi başına."""

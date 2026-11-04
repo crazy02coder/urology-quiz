@@ -53,7 +53,7 @@ curl.exe -L -o cloudflared.exe https://github.com/cloudflare/cloudflared/release
 .venv\Scripts\pyinstaller --noconfirm BilkentSinav.spec
 ```
 
-Exe `dist\Bilkent Sınav.exe` olarak çıkar. Derlemeyi mutlaka `.venv` içindeki `pyinstaller` ile yapın; bağımlılıkları kurulu olmayan bir Python ile derlenen exe açılır açılmaz kapanır. Kod değişince `git pull` ve son satırı tekrar çalıştırmak yeterlidir.
+Exe `dist\Bilkent Sınav.exe` olarak çıkar. Derlemeyi mutlaka `.venv` içindeki `pyinstaller` ile yapın; bağımlılıkları kurulu olmayan bir Python ile derlenen exe açılır açılmaz kapanır. Kod değişince `git pull`, ardından `pip install -r requirements.txt` ve son satırı tekrar çalıştırın.
 
 **Kullanım:**
 
@@ -83,6 +83,13 @@ Exe `dist\Bilkent Sınav.exe` olarak çıkar. Derlemeyi mutlaka `.venv` içindek
 7. Son sorudan sonra “Oturumu bitir” seçin. Katılımcı kendi doğru/yanlış/boş sayılarını, yönetici “Cevap kayıtlarını göster” ile soru bazındaki tüm cevapları görür.
 
 Sınavlar tekrar kullanılabilir. Her oynatım yeni bir oturum, yeni QR ve ayrı katılımcı/cevap kayıtları oluşturur. Sınavlara taslak/aktif/arşiv durumları eklenmemiştir.
+
+### Sonuçları dışa aktarma
+
+Biten oturumun sayfasında, yalnızca yönetici için:
+
+- **Excel'e aktar** (Sonuç gezgini başlığı): tek sayfada her kişinin her soruda işaretlediği şık, doğru cevap, doğru/yanlış/boş sayıları ve altta soru listesi.
+- **PDF olarak indir** (Kişiler sekmesinde kişiyi açınca): o kişinin tüm soruları, işaretlediği şık, doğru cevap ve sonuç.
 
 ## DOCX içe aktarma ve düzenleme
 

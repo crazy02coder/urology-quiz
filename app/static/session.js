@@ -359,7 +359,7 @@ function exBodyPeople() {
   if(!rows.length) return exEmpty('Bu filtreye uyan katılımcı yok.');
   return `<div class="acc-list">${rows.map(({person,score},i)=>{
     const chips=`<span class="acc-score"><span class="pill pill-ok">${score.correct} ✓</span><span class="pill pill-bad">${score.wrong} ✕</span><span class="pill">${score.blank} –</span></span>`;
-    const inner=`<ul class="acc-answers">${questions.map(q=>answerRow(person,q)).join('')}</ul>`;
+    const inner=`<div class="ans-tools"><a class="ex-button ex-export" href="${base}/participants/${encodeURIComponent(person.id)}/export.pdf" download>PDF olarak indir</a></div><ul class="acc-answers">${questions.map(q=>answerRow(person,q)).join('')}</ul>`;
     return accordion(`ex-p${i}`,`<span class="rank">${i+1}</span>${e(person.nickname)}`,`${person.experience_years} yıl deneyim`,chips,score.percent,inner);
   }).join('')}</div>`;
 }
@@ -428,7 +428,7 @@ function exBodyYears() {
 function explorerShell(data) {
   const years=[...new Set(data.participants.map(person=>person.experience_years))].sort((a,b)=>a-b);
   const tabs=[['people','Kişiler'],['questions','Sorular'],['years','Deneyim yılları']];
-  return `<section class="card stats-card explorer"><div class="section-heading"><h2>Sonuç gezgini</h2><span class="count" id="ex-count">${data.participants.length}</span></div>
+  return `<section class="card stats-card explorer"><div class="section-heading"><h2>Sonuç gezgini</h2><span class="ex-heading-side"><a class="ex-button ex-export" href="${base}/export.xlsx" download>Excel'e aktar</a><span class="count" id="ex-count">${data.participants.length}</span></span></div>
     <div class="ex-tabs" role="tablist" aria-label="Sonuç görünümü">${tabs.map(([id,label])=>`<button type="button" role="tab" class="ex-tab" data-extab="${id}" aria-selected="${id==='people'}">${label}</button>`).join('')}</div>
     <div class="ex-bar"><div class="ex-field ex-search"><span class="ex-icon" aria-hidden="true">⌕</span><label class="sr-only" for="ex-search">Takma ad ara</label><input id="ex-search" type="search" placeholder="Takma ad ara…" autocomplete="off"></div><div class="ex-field ex-select"><span class="ex-field-label" aria-hidden="true">Sırala</span><label class="sr-only" for="ex-sort">Sıralama ölçütü</label><select id="ex-sort"></select></div><button type="button" id="ex-dir" class="ex-button"><span class="ex-dir-icon" aria-hidden="true">↓</span><span id="ex-dir-text">Yüksekten</span></button><button type="button" id="ex-reset" class="ex-button ex-reset">Temizle</button></div>
     ${years.length>1?`<div class="ex-years" role="group" aria-label="Deneyim yılı filtresi"><span class="ex-years-label">Deneyim yılı:</span>${years.map(y=>`<button type="button" class="year-chip" data-exyear="${y}" aria-pressed="false">${y} yıl</button>`).join('')}</div>`:''}

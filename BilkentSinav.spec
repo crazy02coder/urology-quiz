@@ -12,7 +12,7 @@ a = Analysis(
     ],
     binaries=[('cloudflared.exe', '.')],
     # Uvicorn döngü/protokol modüllerini isimle yüklediği için otomatik bulunmazlar.
-    hiddenimports=collect_submodules('uvicorn') + collect_submodules('websockets'),
+    hiddenimports=collect_submodules('uvicorn') + collect_submodules('websockets') + collect_submodules('reportlab'),
 )
 pyz = PYZ(a.pure)
 exe = EXE(

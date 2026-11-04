@@ -4,3 +4,5 @@ python-dotenv==1.2.2
 qrcode[pil]==8.2
 defusedxml==0.7.1
 nltk==3.9.2
+openpyxl==3.1.5
+reportlab==5.1.0
