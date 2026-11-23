@@ -118,6 +118,12 @@ def announce(server, tunnel, url):
           f'{line}\n', flush=True)
     webbrowser.open(f'{url}/admin')
 
+def expire(server, at):
+    # Deneme sürümü: süre dolunca açık bağlantıları beklemeden sunucuyu kapat.
+    while not server.should_exit and time.time() < at:
+        time.sleep(1)
+    server.should_exit = server.force_exit = True
+
 def prepare_console():
     # Çıktı dosyaya/boruya yönlenince Windows cp1254 kullanır; Türkçe ve çerçeve karakterleri çökmesin.
     for stream in (sys.stdout, sys.stderr):
@@ -127,7 +133,7 @@ def prepare_console():
         import ctypes
         ctypes.windll.kernel32.SetConsoleTitleW(TITLE)
 
-def main():
+def main(expires_at=None):
     # Uygulama içe aktarmaları burada: eksik modül olursa pencere anında kapanmasın, hata görünsün.
     import uvicorn
     from app.config import Settings
@@ -145,6 +151,8 @@ def main():
     server = uvicorn.Server(uvicorn.Config(create_app(settings), host='127.0.0.1', port=port, workers=1,
                                            proxy_headers=True, forwarded_allow_ips='127.0.0.1', log_level='warning'))
     threading.Thread(target=announce, args=(server, tunnel, tunnel.url), daemon=True).start()
+    if expires_at:
+        threading.Thread(target=expire, args=(server, expires_at), daemon=True).start()
     keep_awake()
     try:
         server.run()
